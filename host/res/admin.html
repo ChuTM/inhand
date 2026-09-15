@@ -40,6 +40,30 @@
             </div>
         </div>
 
+        <div class="block-container screen-share-container">
+            <h2>Screen Sharing</h2>
+            <div class="screen-share-controls">
+                <button id="btn-share-screen" class="share-btn">
+                    <i data-lucide="monitor"></i>
+                    <span>Start Sharing</span>
+                </button>
+                <div id="screen-source-selector" class="source-selector hidden">
+                    <label for="screen-source-select">Share:</label>
+                    <select id="screen-source-select"></select>
+                </div>
+            </div>
+            <div class="screen-share-options">
+                <label class="checkbox-wrapper">
+                    <input type="checkbox" id="persistent-share-window">
+                    <span>Persistent window (always on top)</span>
+                </label>
+            </div>
+            <div id="share-status" class="share-status hidden">
+                <span class="status-indicator"></span>
+                <span>Sharing screen to all students</span>
+            </div>
+        </div>
+
         <main id="content">
             <h2>Monitored Clients</h2>
 
@@ -50,6 +74,7 @@
                             <th>Device Name</th>
                             <th>Status</th>
                             <th>Last Activity</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="device-table">
@@ -86,7 +111,6 @@
         const titleBar = document.getElementById('title-bar');
 
         titleBar.addEventListener('dblclick', () => {
-            // Call the safely exposed API from the preload script
             window.electronAPI.handleDoubleClick();
         });
     </script>

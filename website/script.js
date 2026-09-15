@@ -73,7 +73,7 @@ fetch("./markdown/quick_download.md")
 					["./", "wallpg.web.app/"],
 				];
 
-				// 尋找第一個符合開頭的規則
+				// Find the first rule whose prefix matches the input
 				const match = rules.find(([prefix]) =>
 					this.value.startsWith(prefix),
 				);

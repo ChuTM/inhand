@@ -1,106 +1,136 @@
 # Wallpaper Guard 🖼️🛡️
 
-A centralized management system for macOS desktop wallpapers. This project consists of a **Host (Admin)** application and a **Client** application designed to enforce a standard desktop background across multiple macOS devices in a network.
+A centralized management system for macOS desktop wallpapers, with built-in
+classroom screen sharing. It consists of two apps:
+
+- **Host (Admin)** — the teacher's control center: enforces wallpapers on every
+  connected device, broadcasts the teacher's screen to all students, and lets
+  the teacher view any student's screen.
+- **Client (Student)** — a lightweight background utility on each student Mac
+  that enforces the wallpaper and participates in screen sharing.
 
 > [!NOTE]
-> **MacOS Required**: This app is designed for MacOS.
+> **macOS is required.** The Host and Client communicate over the local network
+> via Socket.io on port 7100.
 
 ## Quick Download & Installation
 
-### For Clients
+### For Students (Client)
 
-[Check Download Page](https://wallpg.web.app/)
+1. Download from the [download page](https://wallpg.web.app/), or run the
+   installer script: `website/install.sh` (Apple Silicon only).
+2. The installer registers the service, writes `WP_CONFIG_URL` to `~/.zshrc`,
+   and walks the user through granting the required macOS permissions,
+   including **Screen Recording** (needed for screen sharing).
+   This installer is for the **student client only** — teachers should not run
+   it on their machine.
 
-### For Admin
+### For Teachers (Host / Admin)
 
-Download the latest release of `Wallpaper.Guard.Admin-...-arm64.dmg
-` from the [GitHub Releases](https://github.com/ChuTM/wallpaper-guard/releases) page and install like a regular Mac application.
+Download the latest `Wallpaper.Guard.Admin-...-arm64.dmg` from the
+[GitHub Releases](https://github.com/ChuTM/wallpaper-guard/releases) page and
+install it like a regular macOS app.
+
+## Features
+
+- **Real-time monitoring** — the admin dashboard shows which devices are
+  online/offline.
+- **Wallpaper enforcement** — the client resets the wallpaper via native
+  `osascript` every `checkInterval` milliseconds.
+- **Lockdown / Config mode** — toggle from the Host to stop clients from
+  changing server settings or quitting the app.
+- **Screen sharing (broadcast)** — the teacher shares their screen; every
+  student Mac pops up a viewing window automatically.
+- **View a student's screen** — the teacher can open any student's live screen
+  on top of the broadcast, without interrupting the broadcast. The student sees
+  a small, frameless "Your teacher is viewing your screen" tag (no controls).
+- **Persistent share windows** — with "Persistent window (always on top)"
+  checked, student windows are locked (always on top, cannot be closed);
+  otherwise students can close them and reopen them anytime from the client
+  tray menu ("Reopen Teacher's Screen").
 
 ## Project Structure
 
-The repository is divided into two main components:
+```
+/host      Teacher (Admin) Electron app — Express + Socket.io server on port
+           7100, localhost-only admin dashboard, WebRTC share signaling.
+/client    Student Electron app — background service with a tray icon, wallpaper
+           enforcement, and screen-sharing windows.
+/website   Landing/download page plus install.sh (student client installer).
+```
 
-* **`/host`**: An Electron-based server and admin dashboard. It manages the connection state of clients and controls whether users are allowed to modify settings.
-* **`/client`**: A lightweight macOS background utility that connects to the host and enforces the system wallpaper via AppleScript.
-
----
-
-## 🚀 Features
-
--   **Real-time Monitoring**: The Admin dashboard shows which devices are currently online/offline.
--   **Lockdown Mode**: Toggle "Config Mode" from the Host to enable or disable the Client's ability to change server settings or quit the app.
--   **Persistent Enforcement**: The client resets the wallpaper every second using macOS native `osascript`.
--   **Auto-Discovery**: Clients can be pointed to the Host's IP address to establish a Socket.io connection.
--   **Persistence**: Device history and server configurations are saved locally using `electron-store` and filesystem JSON.
-
----
-
-## 🛠️ Technical Architecture
-
-
+## Technical Architecture
 
 ### Host (Admin)
--   **Framework**: Electron
--   **Server**: Express.js (for UI/API) + Socket.io (for real-time duplex communication).
--   **Security**: Middleware restricts the Admin UI and API control to `localhost` only.
--   **Storage**: Saves device history in the user's `userData` directory.
+- **Framework**: Electron
+- **Server**: Express.js (UI/API) + Socket.io (real-time signaling), port 7100
+- **Security**: the admin UI/API are restricted to `localhost`
+- **Screen sharing**: WebRTC — students' share windows send offers, the host
+  answers with the teacher's screen stream; "view student" windows request and
+  render a student's stream
 
-### Client
--   **Framework**: Electron (runs in the background/tray).
--   **Communication**: Socket.io-client.
--   **Engine**: Executes shell commands (`osascript`) to interact with macOS System Events.
--   **Tray Interface**: Provides a status indicator (🟢/🔴) and server configuration options.
+### Client (Student)
+- **Framework**: Electron (background service + tray)
+- **Communication**: socket.io-client
+- **Engine**: runs `osascript` to interact with macOS System Events
+- **Screen sharing**: share windows capture the screen (Screen Recording
+  permission required) and stream it to the teacher when requested
 
----
-
-## 📦 Development Installation & Setup
+## Development Installation & Setup
 
 ### Prerequisites
--   Node.js (v16 or higher)
--   macOS (Required for Client wallpaper enforcement)
+- Node.js 16 or higher
+- macOS (required for wallpaper enforcement and screen sharing)
 
 ### 1. Set up the Host
+
 ```bash
 cd host
 npm install
 npm start
 ```
--   The Admin Dashboard will open automatically.
--   Note the Server IP displayed in the dashboard or via the `/server` endpoint.
+
+The admin dashboard opens automatically at `http://localhost:7100/admin`.
 
 ### 2. Set up the Client
+
 ```bash
 cd client
 npm install
 npm start
 ```
--   Click the Tray Icon (top menu bar).
--   Select **Set Server Address** and enter the Host's URL (e.g., `http://192.168.1.50:7100`).
 
----
+Click the tray icon → **Set Server Address** and enter the Host URL
+(e.g. `http://192.168.1.50:7100`). The client can also fetch its server
+configuration from `https://wallpg.web.app/init_config.json`, overridable with
+the `WP_CONFIG_URL` environment variable.
 
-## 🛠️ Configuration
+## Configuration
 
-### Default Wallpaper
-The client enforces the wallpaper located at:
-`/System/Library/CoreServices/DefaultDesktop.heic`
+### Wallpaper
+The default enforced wallpaper is
+`/System/Library/CoreServices/DefaultDesktop.heic`. Change `wallpaperPath` in
+`client/config.json` (or the `DEFAULT_PATH` constant in `client/main.js`).
 
-To change this, modify the `DEFAULT_PATH` constant in `client/main.js`.
+### Server address
+`client/config.json`:
+```json
+{ "serverUrl": "http://localhost:7100" }
+```
 
 ### Build Executables
-Both applications are configured with `electron-builder`. To generate a `.dmg` for distribution:
 
 ```bash
 # In either /host or /client
 npm version patch
 npm prune --production
-
 npm run dist
 ```
 
----
+## Security Notes
 
-## 🔒 Security Notes
--   The **Admin Dashboard** is restricted to the local machine where the Host is running.
--   Remote clients can only communicate via the Socket.io port to register their presence and receive "Config Mode" updates.
--   `contextIsolation` and `nodeIntegration` are configured to follow Electron security best practices.
+- The admin dashboard is restricted to the machine running the Host.
+- Remote clients communicate only over the Socket.io port (7100).
+- Renderers use `contextIsolation` with `nodeIntegration` disabled.
+- Screen sharing requires the user to grant **Screen Recording** permission in
+  System Settings → Privacy & Security.

@@ -1,6 +1,210 @@
 const socket = io();
 
-// Hardcoded injection right over the management panel container
+let localStream = null;
+let peerConnections = new Map();
+let isSharing = false;
+let currentShareSourceId = null;
+
+// ---- Screen sharing ----
+
+async function loadScreenSources() {
+	try {
+		const sources = await window.electronAPI.getScreenSources();
+		const select = document.getElementById("screen-source-select");
+		select.innerHTML = sources
+			.map((s) => `<option value="${s.id}">${s.name}</option>`)
+			.join("");
+		if (sources.length > 0) {
+			currentShareSourceId = sources[0].id;
+		}
+		return sources;
+	} catch (err) {
+		console.error("Failed to load screen sources:", err);
+		return [];
+	}
+}
+
+async function toggleScreenShare() {
+	if (!isSharing) {
+		await startScreenShare();
+	} else {
+		await stopScreenShare();
+	}
+}
+
+async function startScreenShare() {
+	const btn = document.getElementById("btn-share-screen");
+	const selector = document.getElementById("screen-source-selector");
+	const status = document.getElementById("share-status");
+	const select = document.getElementById("screen-source-select");
+	const persistentCheckbox = document.getElementById(
+		"persistent-share-window",
+	);
+	const isPersistent = persistentCheckbox ? persistentCheckbox.checked : false;
+
+	try {
+		if (select.options.length === 0) {
+			await loadScreenSources();
+		}
+		currentShareSourceId = select.value;
+
+		localStream = await navigator.mediaDevices.getUserMedia({
+			audio: false,
+			video: {
+				mandatory: {
+					chromeMediaSource: "desktop",
+					chromeMediaSourceId: currentShareSourceId,
+					minWidth: 1280,
+					maxWidth: 1920,
+					minHeight: 720,
+					maxHeight: 1080,
+				},
+			},
+		});
+
+		isSharing = true;
+
+		// Tell every client to open a share window; each student window will
+		// send us a WebRTC offer that we answer with this local stream.
+		// persistent tells clients whether their window should be locked
+		// (always-on-top, not closable by the student).
+		socket.emit("teacher-start-share", { persistent: isPersistent });
+
+		// Optional always-on-top local preview of what the teacher is sharing
+		if (isPersistent) {
+			const shareUrl = `${window.location.origin}/share.html?mode=teacher-preview&persistent=true&serverUrl=${encodeURIComponent(window.location.origin)}`;
+			window.electronAPI.createShareWindow(
+				shareUrl,
+				"My Screen Share Preview",
+				"teacher-preview",
+			);
+		}
+
+		btn.innerHTML = `<i data-lucide="monitor-off"></i><span>Stop Sharing</span>`;
+		btn.classList.add("sharing");
+		selector.classList.add("hidden");
+		status.classList.remove("hidden");
+		lucide.createIcons({
+			attrs: { class: "lucide-icon", "stroke-width": 1.5 },
+		});
+	} catch (err) {
+		console.error("Failed to start screen share:", err);
+		alert("Failed to start screen sharing: " + err.message);
+	}
+}
+
+async function stopScreenShare() {
+	const btn = document.getElementById("btn-share-screen");
+	const selector = document.getElementById("screen-source-selector");
+	const status = document.getElementById("share-status");
+
+	socket.emit("teacher-stop-share");
+
+	peerConnections.forEach((pc) => pc.close());
+	peerConnections.clear();
+
+	if (localStream) {
+		localStream.getTracks().forEach((track) => track.stop());
+		localStream = null;
+	}
+
+	isSharing = false;
+	btn.innerHTML = `<i data-lucide="monitor"></i><span>Start Sharing</span>`;
+	btn.classList.remove("sharing");
+	selector.classList.remove("hidden");
+	status.classList.add("hidden");
+	lucide.createIcons({
+		attrs: { class: "lucide-icon", "stroke-width": 1.5 },
+	});
+}
+
+// A student share window asks to receive the teacher's broadcast.
+// data.fromId is the student's share-window socket id.
+socket.on("screen-share-offer", async (data) => {
+	if (!localStream || !isSharing) return;
+	const studentWindowId = data.fromId;
+
+	let pc = peerConnections.get(studentWindowId);
+	if (!pc) {
+		pc = new RTCPeerConnection({
+			iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+		});
+
+		localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+
+		pc.onicecandidate = (event) => {
+			if (event.candidate) {
+				socket.emit("screen-share-ice-candidate", {
+					targetId: studentWindowId,
+					candidate: event.candidate,
+				});
+			}
+		};
+
+		pc.onconnectionstatechange = () => {
+			if (
+				pc.connectionState === "disconnected" ||
+				pc.connectionState === "failed" ||
+				pc.connectionState === "closed"
+			) {
+				pc.close();
+				peerConnections.delete(studentWindowId);
+			}
+		};
+
+		peerConnections.set(studentWindowId, pc);
+	}
+
+	try {
+		await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+		const answer = await pc.createAnswer();
+		await pc.setLocalDescription(answer);
+		socket.emit("screen-share-answer", {
+			targetId: studentWindowId,
+			sdp: answer,
+		});
+	} catch (err) {
+		console.error("Error answering student stream request:", err);
+	}
+});
+
+function viewStudentScreen(studentId, socketId) {
+	const shareUrl = `${window.location.origin}/share.html?mode=view-student&studentId=${encodeURIComponent(socketId)}&teacherId=${encodeURIComponent(socket.id)}&persistent=true&serverUrl=${encodeURIComponent(window.location.origin)}`;
+	window.electronAPI.createShareWindow(
+		shareUrl,
+		`Viewing ${studentId}`,
+		socketId,
+	);
+}
+
+socket.on("screen-share-answer", async (data) => {
+	const pc = peerConnections.get(data.fromId);
+	if (pc) {
+		try {
+			await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+			console.log("Answer received from student window:", data.fromId);
+		} catch (err) {
+			console.error("Error setting remote description:", err);
+		}
+	}
+});
+
+socket.on("screen-share-ice-candidate", async (data) => {
+	const pc = peerConnections.get(data.fromId);
+	if (pc) {
+		try {
+			await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+		} catch (err) {
+			console.error("Error adding ICE candidate:", err);
+		}
+	}
+});
+
+socket.on("teacher-stop-share", () => {
+	peerConnections.forEach((pc) => pc.close());
+	peerConnections.clear();
+});
+
 function initializeConsoleLayout() {
 	const configPanel = document.querySelector(".block-container");
 	if (!configPanel) return;
@@ -43,6 +247,7 @@ async function fetchStatus() {
                                 ${device.lastSeen || device.firstSeen}
                             </td>
                             <td>
+                                ${isOnline ? `<button onclick="viewStudentScreen('${device.name}', '${device.socketId}')" class="view-btn"><i data-lucide="eye"></i> View Screen</button>` : ""}
                                 ${
 									!isOnline
 										? `<button onclick="removeConnectionHistory('${device.name}')" class="btn-remove" title="Remove History">⨉</button>`
@@ -53,12 +258,17 @@ async function fetchStatus() {
                     `;
 			})
 			.join("");
+		lucide.createIcons({
+			attrs: {
+				class: 'lucide-icon',
+				'stroke-width': 1.5,
+			}
+		});
 	} catch (err) {
 		console.error("Failed to fetch status:", err);
 	}
 }
 
-// Appends data incoming from backend arrays directly to standard viewport layouts
 function appendConsoleOutput(
 	deviceName,
 	payload,
@@ -82,11 +292,9 @@ function appendConsoleOutput(
 
 	console.log(deviceName, { payload, isError });
 
-	// Look for an existing device container using a sanitized ID
 	const safeId = `device-log-${deviceName.replace(/[^a-zA-Z0-9]/g, "-")}`;
 	let deviceCard = document.getElementById(safeId);
 
-	// If the device card doesn't exist yet, create the overall wrapper structure
 	if (!deviceCard) {
 		deviceCard = document.createElement("details");
 		deviceCard.id = safeId;
@@ -94,45 +302,49 @@ function appendConsoleOutput(
 		deviceCard.open = true;
 
 		deviceCard.innerHTML = `
-			<summary class="device-terminal-header">
-				<span class="header-icon">⌃</span>
-				<span class="device-title">${deviceName}</span>
-			</summary>
-			<div class="device-terminal-body"></div>
-		`;
+            <summary class="device-terminal-header">
+                <span class="header-icon">⌃</span>
+                <span class="device-title">${deviceName}</span>
+            </summary>
+            <div class="device-terminal-body"></div>
+        `;
 
-		// Insert newest devices at the top of the stream
 		streamContainer.insertBefore(deviceCard, streamContainer.firstChild);
 	}
 
-	// Target the internal body of the existing device panel
 	const terminalBody = deviceCard.querySelector(".device-terminal-body");
 
-	// Create the fresh multi-line command output block
 	const commandBlock = document.createElement("div");
 	commandBlock.className = `terminal-command-entry ${isError ? "has-error" : ""}`;
 	commandBlock.innerHTML = `
-		<div class="command-meta">[${timestamp}] &gt; ${fullFallback?.command || ""} ${isError ? "ERR" : "OUT"}</div>
-		<pre class="command-payload"><code>${cleanOutput}</code></pre>
-	`;
+        <div class="command-meta">[${timestamp}] > ${fullFallback?.command || ""} ${isError ? "ERR" : "OUT"}</div>
+        <pre class="command-payload"><code>${cleanOutput}</code></pre>
+    `;
 
-	// Append the new command linearly at the bottom of this specific device's card
 	terminalBody.appendChild(commandBlock);
 }
 
-// Lifecycle Init hooks
 document.addEventListener("DOMContentLoaded", () => {
 	initializeConsoleLayout();
 	fetchStatus();
 	serverAddress();
 	listenForCommands();
+
+	document.getElementById("screen-source-select").addEventListener("change", (e) => {
+		currentShareSourceId = e.target.value;
+	});
+
+	// Load available screens/windows up-front so the teacher can pick a source
+	loadScreenSources().then(() => {
+		document.getElementById("screen-source-selector").classList.remove("hidden");
+	});
+
+	document.getElementById("btn-share-screen").addEventListener("click", toggleScreenShare);
 });
 
 socket.on("refresh-ui", fetchStatus);
 
-// Real-time server socket event stream processing unpacking array structure maps safely
 socket.on("admin-command-result", (data) => {
-	// Structural validation to verify array wrapper payload formatting types cleanly
 	console.log(data);
 
 	if (!data || typeof data !== "object") {
@@ -162,7 +374,6 @@ socket.on("admin-command-error", (error) => {
 	appendConsoleOutput(name, msg, true, error);
 });
 
-// Print all socket events for debugging
 socket.onAny((event, ...args) => {
 	console.log(`Received event: ${event}`, args);
 });

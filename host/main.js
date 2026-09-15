@@ -6,6 +6,8 @@ import {
 	nativeImage,
 	Notification,
 	shell,
+	ipcMain,
+	desktopCapturer,
 } from "electron";
 import express from "express";
 import http from "http";
@@ -37,6 +39,14 @@ if (!fs.existsSync(DATA_RES_PATH)) {
 let deviceHistory = [];
 const activeUsers = new Map();
 
+const peerConnections = new Map();
+const screenShareWindows = new Map();
+
+// Teacher screen-share state (shared across sockets)
+let shareActive = false;
+// viewer socket id -> student main socket id (used to notify students when a teacher view window closes)
+const viewerWindows = new Map();
+
 // macOS: Hide from dock
 if (process.platform === "darwin") {
 	app.dock.hide();
@@ -60,6 +70,58 @@ const saveHistory = () => {
 	}
 };
 
+// Screen Capture IPC Handler
+ipcMain.handle("GET_SCREEN_SOURCES", async () => {
+	const sources = await desktopCapturer.getSources({
+		types: ["screen", "window"],
+		thumbnailSize: { width: 300, height: 200 },
+	});
+	return sources.map((source) => ({
+		id: source.id,
+		name: source.name,
+		thumbnail: source.thumbnail.toDataURL(),
+	}));
+});
+
+// Screen Share Window Management
+function createScreenShareWindow(streamUrl, title, peerId) {
+	if (screenShareWindows.has(peerId)) {
+		screenShareWindows.get(peerId).focus();
+		return;
+	}
+
+	const win = new BrowserWindow({
+		width: 1280,
+		height: 720,
+		title: title,
+		autoHideMenuBar: true,
+		webPreferences: {
+			nodeIntegration: false,
+			contextIsolation: true,
+			preload: path.join(__dirname, "preload.js"),
+		},
+	});
+
+	win.loadURL(streamUrl);
+	win.on("closed", () => {
+		screenShareWindows.delete(peerId);
+	});
+
+	screenShareWindows.set(peerId, win);
+	return win;
+}
+
+ipcMain.on("CREATE_SHARE_WINDOW", (event, { url, title, peerId }) => {
+	createScreenShareWindow(url, title, peerId);
+});
+
+ipcMain.on("SET_ALWAYS_ON_TOP", (event, flag) => {
+	const win = BrowserWindow.fromWebContents(event.sender);
+	if (win) {
+		win.setAlwaysOnTop(flag);
+	}
+});
+
 // Middleware: Localhost Restriction
 function restrictToLocalhost(req, res, next) {
 	const remoteAddress = req.socket.remoteAddress;
@@ -82,6 +144,11 @@ const expressApp = express();
 const server = http.createServer(expressApp);
 const io = new Server(server, {
 	cors: { origin: "*" },
+	allowEIO3: true
+});
+
+io.engine.on("connection_error", (err) => {
+	console.error("Engine.io connection error:", err.code, err.message, err.context);
 });
 
 expressApp.use(express.json());
@@ -94,11 +161,15 @@ expressApp.get("/admin", (req, res) => {
 });
 
 expressApp.get("/api/status", (req, res) => {
-	const activeNames = Array.from(activeUsers.values());
-	const report = deviceHistory.map((device) => ({
-		...device,
-		status: activeNames.includes(device.name) ? "Online" : "Offline",
-	}));
+	const activeUsersArray = Array.from(activeUsers.entries()).map(([socketId, name]) => ({ socketId, name }));
+	const report = deviceHistory.map((device) => {
+		const activeUser = activeUsersArray.find(u => u.name === device.name);
+		return {
+			...device,
+			status: activeUser ? "Online" : "Offline",
+			socketId: activeUser ? activeUser.socketId : null,
+		};
+	});
 	res.json(report);
 });
 
@@ -142,6 +213,8 @@ expressApp.post("/api/remove-history", (req, res) => {
 	res.send(true);
 });
 
+// Screen share API
+
 expressApp.get("/server", (req, res) => {
 	const interfaces = os.networkInterfaces();
 	for (const name of Object.keys(interfaces)) {
@@ -162,6 +235,7 @@ expressApp.use(express.static(STATIC_RES_PATH));
 
 // Socket Logic
 io.on("connection", (socket) => {
+	console.log(`New connection: ${socket.id} from ${socket.handshake.address}, transport: ${socket.conn.transport.name}`);
 	socket.on("register-mac", (macUsername) => {
 		io.emit("admin-change", allow_config);
 		activeUsers.set(socket.id, macUsername);
@@ -188,10 +262,101 @@ io.on("connection", (socket) => {
 				body: `${macUsername} has disconnected.`,
 			}).show();
 		}
+
+		// If a teacher "view student" window closes, tell the student to stop streaming
+		const viewingStudent = viewerWindows.get(socket.id);
+		if (viewingStudent) {
+			viewerWindows.delete(socket.id);
+			socket.to(viewingStudent).emit("stop-student-stream", {
+				teacherId: socket.id,
+			});
+		}
+
+		const peerId = Array.from(peerConnections.keys()).find(
+			(key) => peerConnections.get(key).socketId === socket.id
+		);
+		if (peerId) {
+			const pc = peerConnections.get(peerId);
+			pc.close();
+			peerConnections.delete(peerId);
+			if (screenShareWindows.has(peerId)) {
+				screenShareWindows.get(peerId).close();
+			}
+		}
+	});
+
+	socket.on("share-window-join", (data) => {
+		// Student share windows announce themselves so we can sync current share state.
+		// Teacher "view student" windows announce role: "viewer" for disconnect cleanup.
+		if (data && data.role === "viewer" && data.studentId) {
+			viewerWindows.set(socket.id, data.studentId);
+		} else {
+			socket.emit("share-active", { active: shareActive });
+		}
+	});
+
+	socket.on("screen-share-offer", (data) => {
+		if (data.targetId === "broadcast") {
+			socket.broadcast.emit("screen-share-offer", {
+				sdp: data.sdp,
+				fromId: socket.id,
+			});
+		} else {
+			socket.to(data.targetId).emit("screen-share-offer", {
+				sdp: data.sdp,
+				fromId: socket.id,
+			});
+		}
+	});
+
+	socket.on("screen-share-answer", (data) => {
+		socket.to(data.targetId).emit("screen-share-answer", {
+			sdp: data.sdp,
+			fromId: socket.id,
+		});
+	});
+
+	socket.on("screen-share-ice-candidate", (data) => {
+		if (data.targetId === "broadcast") {
+			socket.broadcast.emit("screen-share-ice-candidate", {
+				candidate: data.candidate,
+				fromId: socket.id,
+			});
+		} else {
+			socket.to(data.targetId).emit("screen-share-ice-candidate", {
+				candidate: data.candidate,
+				fromId: socket.id,
+			});
+		}
+	});
+
+	socket.on("teacher-start-share", (data) => {
+		shareActive = true;
+		socket.broadcast.emit("teacher-start-share", {
+			teacherId: socket.id,
+			persistent: !!(data && data.persistent),
+		});
+	});
+
+	socket.on("teacher-stop-share", () => {
+		shareActive = false;
+		socket.broadcast.emit("teacher-stop-share", { teacherId: socket.id });
+	});
+
+	socket.on("request-student-stream", (data) => {
+		socket.to(data.studentId).emit("request-student-stream", {
+			teacherId: socket.id,
+		});
+	});
+
+	socket.on("stop-student-stream", (data) => {
+		socket.to(data.studentId).emit("stop-student-stream", {
+			teacherId: socket.id,
+		});
 	});
 });
 
-server.listen(PORT, "0.0.0.0", () => {
+server.listen(PORT, "::", () => {
 	console.log(`Server running on port ${PORT}`);
 });
 
@@ -210,6 +375,7 @@ function showWindow() {
 			webPreferences: {
 				nodeIntegration: false,
 				contextIsolation: true,
+				preload: path.join(__dirname, "preload.js"),
 			},
 		});
 		mainWindow.loadURL(`http://localhost:${PORT}/admin`);

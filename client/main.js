@@ -1,4 +1,13 @@
-const { app } = require("electron");
+const {
+	app,
+	BrowserWindow,
+	ipcMain,
+	desktopCapturer,
+	Tray,
+	Menu,
+	nativeImage,
+	screen,
+} = require("electron");
 const { exec } = require("child_process");
 const os = require("os");
 const path = require("path");
@@ -68,6 +77,172 @@ if (settings.checkInterval < 1000) {
 let socket = null;
 let enforcementTimer = null;
 
+let shareWindows = new Map(); // BrowserWindow -> mode ("teacher-view" | "student-share")
+
+// Teacher broadcast state (used by the tray "reopen" action)
+let teacherSharing = false;
+let lastTeacherId = null;
+let lastPersistent = false;
+
+let tray = null;
+
+// Screen Capture IPC Handler
+ipcMain.handle("GET_SCREEN_SOURCES", async () => {
+	const sources = await desktopCapturer.getSources({
+		types: ["screen", "window"],
+		thumbnailSize: { width: 300, height: 200 },
+	});
+	return sources.map((source) => ({
+		id: source.id,
+		name: source.name,
+		thumbnail: source.thumbnail.toDataURL(),
+	}));
+});
+
+ipcMain.on("SET_ALWAYS_ON_TOP", (event, flag) => {
+	const win = BrowserWindow.fromWebContents(event.sender);
+	if (win) {
+		win.setAlwaysOnTop(flag);
+	}
+});
+
+// Renderer asks the main process to close a share window (needed because
+// persistent windows are locked against direct window.close()).
+ipcMain.on("CLOSE_SHARE_WINDOW", (event) => {
+	const win = BrowserWindow.fromWebContents(event.sender);
+	if (win && !win.isDestroyed()) {
+		if (win.__locked) win.__forceClose = true;
+		win.close();
+	}
+});
+
+function createShareWindow(mode, targetId, sourceId, persistent = false) {
+	const shareUrl = `file://${path.join(__dirname, "share.html")}?mode=${mode}&teacherId=${encodeURIComponent(targetId)}&persistent=${persistent}&serverUrl=${encodeURIComponent(settings.serverUrl)}`;
+
+	let win;
+
+	if (mode === "student-share") {
+		// Small, frameless, always-on-top tag: "Your teacher is viewing your
+		// screen". No title bar, no controls, clicks pass through.
+		win = new BrowserWindow({
+			width: 380,
+			height: 84,
+			frame: false,
+			transparent: true,
+			resizable: false,
+			movable: false,
+			focusable: false,
+			hasShadow: false,
+			skipTaskbar: true,
+			alwaysOnTop: true,
+			webPreferences: {
+				nodeIntegration: false,
+				contextIsolation: true,
+				preload: path.join(__dirname, "preload.js"),
+			},
+		});
+		win.setAlwaysOnTop(true, "screen-saver");
+		win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+		win.setIgnoreMouseEvents(true, { forward: true });
+		// Float in the top-right corner of the primary display
+		try {
+			const { workArea } = screen.getPrimaryDisplay();
+			win.setPosition(
+				workArea.x + workArea.width - 380 - 24,
+				workArea.y + 24,
+			);
+		} catch (e) {
+			/* keep default position */
+		}
+	} else {
+		win = new BrowserWindow({
+			width: 1280,
+			height: 720,
+			title: "Viewing Teacher Screen",
+			autoHideMenuBar: true,
+			alwaysOnTop: persistent,
+			webPreferences: {
+				nodeIntegration: false,
+				contextIsolation: true,
+				preload: path.join(__dirname, "preload.js"),
+			},
+		});
+
+		if (persistent) {
+			// Persistent windows are locked: the student cannot close them.
+			// Only the main process can close them (sets __forceClose first).
+			win.__locked = true;
+			win.on("close", (e) => {
+				if (win.__locked && !win.__forceClose) {
+					e.preventDefault();
+				}
+			});
+		}
+	}
+
+	win.loadURL(shareUrl);
+
+	win.on("closed", () => {
+		shareWindows.delete(win);
+	});
+
+	shareWindows.set(win, mode);
+	return win;
+}
+
+function stopShareWindowsForMode(mode) {
+	for (const [win, winMode] of shareWindows) {
+		if (winMode !== mode || win.isDestroyed()) continue;
+		if (win.webContents.isDestroyed()) continue;
+		if (win.__locked) win.__forceClose = true;
+		win.webContents.send("stop-share");
+	}
+}
+
+function reopenTeacherScreen() {
+	if (!teacherSharing || !lastTeacherId) return;
+	// Don't create a duplicate window
+	for (const [win, winMode] of shareWindows) {
+		if (winMode === "teacher-view" && !win.isDestroyed()) {
+			win.focus();
+			return;
+		}
+	}
+	createShareWindow("teacher-view", lastTeacherId, null, lastPersistent);
+}
+
+// --- Tray ---
+
+function createTray() {
+	const icon = nativeImage
+		.createFromPath(path.join(__dirname, "res", "icon.png"))
+		.resize({ width: 18, height: 18 });
+	tray = new Tray(icon);
+	tray.setToolTip("Wallpaper Guard Client");
+	rebuildTrayMenu();
+	tray.on("double-click", () => reopenTeacherScreen());
+}
+
+function rebuildTrayMenu() {
+	if (!tray) return;
+	const menu = Menu.buildFromTemplate([
+		{
+			label: "Reopen Teacher's Screen",
+			enabled: teacherSharing,
+			click: () => reopenTeacherScreen(),
+		},
+		{ type: "separator" },
+		{
+			label: "Quit",
+			click: () => {
+				app.isQuitting = true;
+				app.quit();
+			},
+		},
+	]);
+	tray.setContextMenu(menu);
+}
+
 const REPLACE_VARIABLES = {
 	"{{SERVER_URL}}": () => settings.serverUrl,
 	"{{DEVICE_NAME}}": () => DEVICE_NAME,
@@ -77,13 +252,38 @@ const REPLACE_VARIABLES = {
 
 function connectSocket() {
 	if (socket) socket.disconnect();
-	socket = io(settings.serverUrl, { reconnection: true });
+	socket = io(settings.serverUrl, { 
+		reconnection: true,
+		transports: ['polling', 'websocket'],
+		timeout: 10000,
+		forceNew: true
+	});
 
 	console.log(`Attempting to connect to server at ${settings.serverUrl}...`);
 
 	socket.on("connect", () => {
 		socket.emit("register-mac", DEVICE_NAME);
 		console.log(`Connected to server at ${settings.serverUrl} as ${DEVICE_NAME}`);
+	});
+
+	socket.on("connect_error", (err) => {
+		console.error("Connection error:", err.message, err.context);
+	});
+
+	socket.on("connect_timeout", () => {
+		console.error("Connection timeout");
+	});
+
+	socket.on("reconnect_attempt", (attempt) => {
+		console.log(`Reconnection attempt: ${attempt}`);
+	});
+
+	socket.io.on("reconnect", (attemptNumber) => {
+		console.log(`Reconnected after ${attemptNumber} attempts`);
+	});
+
+	socket.io.on("reconnect_failed", () => {
+		console.error("Reconnection failed");
 	});
 
 	socket.on("enforce-wallpaper", () => {
@@ -95,26 +295,21 @@ function connectSocket() {
 	});
 
 	socket.on("admin-command", (cmd) => {
-		console.log(`Command received: ${cmd}`);
+		console.log(`Command received: ${cmd}, VERIFYING...`);
 
 		function shouldExecuteCommand(inputLine, currentDevice) {
-			// Trim the input to make matching cleaner
 			let trimmedInput = inputLine.trim();
 
 			let targetDevice = null;
 			let actualCommand = trimmedInput;
 
-			// 1. Check if it STARTS with a device routing syntax: "imac01=>" or "=> imac01"
 			const startRegex = /^(?:([\w-]+)\s*=>|=>\s*([\w-]+))\s*(.*)$/;
 			const startMatch = trimmedInput.match(startRegex);
 
 			if (startMatch) {
-				// Device could be in capture group 1 or 2 depending on which side of => it was on
 				targetDevice = startMatch[1] || startMatch[2];
 				actualCommand = startMatch[3];
-			}
-			// 2. Check if it ENDS with a device routing syntax: "=> imac01" or "imac01=>"
-			else {
+			} else {
 				const endRegex = /^(.*?)\s*(?:=>\s*([\w-]+)|([\w-]+)\s*=>)$/;
 				const endMatch = trimmedInput.match(endRegex);
 
@@ -124,12 +319,8 @@ function connectSocket() {
 				}
 			}
 
-			// Clean up the command text
 			actualCommand = actualCommand.trim();
 
-			// 3. Execution Logic
-			// If no device is specified, ALL devices execute.
-			// If a device IS specified, it must match currentDevice.
 			if (
 				!targetDevice ||
 				targetDevice.toLowerCase() === currentDevice.toLowerCase()
@@ -180,6 +371,40 @@ function connectSocket() {
 				}),
 			});
 		});
+	});
+
+	socket.on("teacher-start-share", (data) => {
+		console.log("Teacher started sharing screen", data);
+		teacherSharing = true;
+		lastTeacherId = data.teacherId;
+		lastPersistent = !!(data && data.persistent);
+		rebuildTrayMenu();
+		// Close any stale window, then open a fresh one
+		stopShareWindowsForMode("teacher-view");
+		createShareWindow("teacher-view", data.teacherId, null, lastPersistent);
+	});
+
+	socket.on("teacher-stop-share", (data) => {
+		console.log("Teacher stopped sharing screen", data);
+		teacherSharing = false;
+		rebuildTrayMenu();
+		stopShareWindowsForMode("teacher-view");
+	});
+
+	socket.on("request-student-stream", (data) => {
+		console.log("Teacher requested student stream", data);
+		// Close the teacher's shared-screen window first so the screen the
+		// teacher sees is clean (no self-referencing teacher screen inside it).
+		stopShareWindowsForMode("teacher-view");
+		// Avoid duplicate tags; the new window re-streams the screen.
+		stopShareWindowsForMode("student-share");
+		// The share window will capture this device's screen and stream it back
+		createShareWindow("student-share", data.teacherId, null, true);
+	});
+
+	socket.on("stop-student-stream", (data) => {
+		console.log("Teacher stopped student stream", data);
+		stopShareWindowsForMode("student-share");
 	});
 }
 
@@ -248,6 +473,8 @@ app.on("window-all-closed", (e) => e.preventDefault());
 
 app.whenReady().then(async () => {
 	if (process.platform === "darwin") app.dock.hide();
+
+	createTray();
 
 	console.log("Service directory:", APP_BUNDLE_DIR);
 

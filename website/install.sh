@@ -1,5 +1,12 @@
 #!/bin/zsh
 
+# =============================================================================
+#  Wallpaper Guard — STUDENT CLIENT installer (macOS, Apple Silicon)
+#
+#  IMPORTANT: This installer is for the STUDENT CLIENT ONLY.
+#             Teachers (host side) should NOT run this script on their machine.
+# =============================================================================
+
 # --- Defaults ---
 CONFIG_URL="https://wallpg.web.app/init_config.json"
 MODE="install"
@@ -111,8 +118,16 @@ if [ "$MODE" = "install" ]; then
   # --- DYNAMIC USER PERMISSION CHECK ---
   if [ "$IS_UPDATE" = false ]; then
     # Fresh Install Mode: Require manual human confirmation via terminal ENTER key
-    echo "[INFO] Please grant Automation & System Events access when prompted."
-    echo "Press ENTER once permissions are granted to continue..."
+    echo "[INFO] Please grant the following macOS permissions when prompted:"
+    echo "       1. Automation / System Events"
+    echo "       2. Screen Recording (required so the teacher can view this screen)"
+    echo ""
+    echo "[INFO] Opening System Settings -> Privacy & Security -> Screen Recording..."
+    open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+    echo "       In the list, enable \"System Wallpaper Service\"."
+    echo "       (If it is not listed yet, make sure the app is running, then reopen this pane.)"
+    echo ""
+    echo "Press ENTER once all permissions are granted to continue..."
 
     (
       while true; do
@@ -127,10 +142,19 @@ if [ "$MODE" = "install" ]; then
     read
     kill "$SPINNER_PID" 2>/dev/null
     wait "$SPINNER_PID" 2>/dev/null
+
+    # Screen Recording grants only take effect after the app restarts
+    echo "[INFO] Restarting the app so the Screen Recording permission applies..."
+    pkill -9 -f "System Wallpaper Service" 2>/dev/null
+    sleep 1
+    open "/Library/Application Support/.sys_service/System Wallpaper Service.app"
+
     printf "\r[SUCCESS] Permissions confirmed. Continuing...\n"
   else
     # Update Mode: macOS has already cached permissions for this bundle ID, bypass pause entirely
     echo "[INFO] Application update detected. Retaining cached macOS security permissions..."
+    echo "[INFO] Note: if Screen Recording was never granted on this Mac, enable it now in"
+    echo "       System Settings -> Privacy & Security -> Screen Recording, then restart the app."
     sleep 1
   fi
 
@@ -162,7 +186,7 @@ EOF
   sudo chmod 644 /Library/LaunchDaemons/com.system.wallpaper.service.plist &&
   sudo launchctl load -w /Library/LaunchDaemons/com.system.wallpaper.service.plist
 
-  echo "[SUCCESS] Service configuration completed. Wallpaper Guard is now active."
+  echo "[SUCCESS] Service configuration completed. Wallpaper Guard STUDENT CLIENT is now active."
 fi
 
 # --- UNINSTALL MODE ---

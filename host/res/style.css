@@ -433,6 +433,227 @@ tr:last-child td {
 	background-color: rgba(255, 59, 48, 0.05);
 }
 
+/* Screen Share Controls */
+.screen-share-container {
+	margin-bottom: 40px;
+}
+
+.screen-share-controls {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	flex-wrap: wrap;
+}
+
+.share-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	background: var(--sf-text);
+	border: none;
+	color: #ffffff;
+	font-size: 0.85rem;
+	font-weight: 500;
+	padding: 0 18px;
+	height: 34px;
+	cursor: pointer;
+	border-radius: 8px;
+	transition: opacity 0.2s, background 0.2s;
+}
+
+.share-btn:hover {
+	opacity: 0.9;
+}
+
+.share-btn.sharing {
+	background: var(--apple-red);
+}
+
+.share-btn.sharing:hover {
+	background: #cc2e25;
+}
+
+.share-btn i {
+	width: 16px;
+	height: 16px;
+}
+
+.source-selector {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 0.85rem;
+	color: var(--sf-secondary);
+}
+
+.source-selector select {
+	padding: 6px 12px;
+	border: 1px solid var(--sf-border);
+	border-radius: 6px;
+	background: var(--sf-card);
+	color: var(--sf-text);
+	font-size: 0.85rem;
+	cursor: pointer;
+	min-width: 200px;
+}
+
+.source-selector.hidden {
+	display: none;
+}
+
+.share-status {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-top: 12px;
+	padding: 8px 12px;
+	background: rgba(52, 199, 89, 0.1);
+	border: 1px solid rgba(52, 199, 89, 0.2);
+	border-radius: 8px;
+	font-size: 0.85rem;
+	color: #1a7f37;
+}
+
+.share-status.hidden {
+	display: none;
+}
+
+.status-indicator {
+	width: 8px;
+	height: 8px;
+	background: var(--apple-green);
+	border-radius: 50%;
+	animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.5; }
+}
+
+.screen-share-options {
+	margin-top: 12px;
+	padding-top: 12px;
+	border-top: 1px solid var(--sf-border);
+}
+
+.checkbox-wrapper {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 0.85rem;
+	color: var(--sf-text);
+	cursor: pointer;
+}
+
+.checkbox-wrapper input[type="checkbox"] {
+	width: 16px;
+	height: 16px;
+	accent-color: var(--sf-text);
+	cursor: pointer;
+}
+
+/* Student Grid for Screen Viewing */
+.student-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+	gap: 16px;
+	margin-top: 16px;
+}
+
+.student-tile {
+	background: var(--sf-card);
+	border-radius: 12px;
+	border: 1px solid var(--sf-border);
+	overflow: hidden;
+	cursor: pointer;
+	transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.student-tile:hover {
+	transform: translateY(-2px);
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+.student-tile.offline {
+	opacity: 0.5;
+}
+
+.student-tile-preview {
+	width: 100%;
+	aspect-ratio: 16/9;
+	background: #000;
+	position: relative;
+}
+
+.student-tile-preview video {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+
+.student-tile-preview .placeholder {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	color: var(--sf-secondary);
+	font-size: 0.85rem;
+}
+
+.student-tile-info {
+	padding: 12px;
+}
+
+.student-tile-name {
+	font-weight: 500;
+	font-size: 0.9rem;
+	margin-bottom: 4px;
+}
+
+.student-tile-status {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 0.75rem;
+}
+
+.student-tile-status .status-dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+}
+
+.student-tile-status.online .status-dot {
+	background: var(--apple-green);
+}
+
+.student-tile-status.offline .status-dot {
+	background: var(--sf-secondary);
+}
+
+.view-btn {
+	margin-top: 8px;
+	padding: 6px 12px;
+	background: var(--sf-text);
+	color: #fff;
+	border: none;
+	border-radius: 6px;
+	font-size: 0.8rem;
+	cursor: pointer;
+	width: 100%;
+	transition: opacity 0.2s;
+}
+
+.view-btn:hover {
+	opacity: 0.9;
+}
+
+.view-btn:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+}
+
 .lucide-icon {
 	width: 16px;
 	height: 16px;
