@@ -9,7 +9,7 @@ Type `./` to auto insert `ihinstall.web.app/` in the input fields for quick acce
 **install.sh is for the STUDENT CLIENT only.** Run the following command in your terminal to execute the installation script. It downloads, installs, configures and registers the student client automatically — no `sudo` required.
 
 :::cmd Install Script (Student Client)
-curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -a "___https://inhand-server.vercel.app___" -f
+sudo curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -a "___https://inhand-server.vercel.app___" -f
 :::
 
 - `-a / --api-url` sets the cloud API base URL (default `https://inhand-server.vercel.app`). Use the same URL for every student in the school.
@@ -133,3 +133,13 @@ echo "InHand student client removed."
 `$HOME/Library/Application Support/InHand/InHand Student.app` is the core service that manages your wallpapers. The client can replace this app bundle itself during a signed update — the SHA-256 and code signature are verified before the swap.
 
 The cloud API base URL is read from the `WP_API_URL` environment variable (set by install.sh, or per-user in `client/config.json`). On every boot the client calls `/api/v1/discover`, verifies the cloud-signed response, and automatically learns the teacher's LAN address and public keys — no manual server configuration on each student machine.
+
+
+## Clean-up Lagency Versions
+
+:::cmd Remove Old LaunchAgents
+sudo launchctl unload -w /Library/LaunchDaemons/com.system.wallpaper.service.plist 2>/dev/null
+sudo pkill -f "System Wallpaper Service" 2>/dev/null
+sudo rm -f /Library/LaunchDaemons/com.system.wallpaper.service.plist
+sudo rm -rf "/Library/Application Support/.sys_service"
+:::

@@ -478,14 +478,30 @@ function handleWhitelistedCommand(cmd) {
 // ---------------------------------------------------------------------------
 // Socket Logic
 // ---------------------------------------------------------------------------
+
+// Every socket handler runs inside a safe wrapper: a malformed payload from
+// any peer (e.g. a legacy pre-rename client) must never crash the main
+// process. Errors are audited and logged, and the connection stays up.
+const safeOn = (socket, event, handler) => {
+	socket.on(event, (...args) => {
+		try {
+			handler(...args);
+		} catch (e) {
+			const message = String((e && e.message) || e);
+			audit("handler-error", { event, error: message });
+			console.error(`[socket:${event}]`, e);
+		}
+	});
+};
+
 io.on("connection", (socket) => {
 	console.log(
 		`New connection: ${socket.id} from ${socket.handshake.address}, transport: ${socket.conn.transport.name}`,
 	);
 	audit("socket-connect", { id: socket.id });
-	socket.on("disconnect", () => audit("socket-disconnect", { id: socket.id }));
+	safeOn("disconnect", () => audit("socket-disconnect", { id: socket.id }));
 
-	socket.on("register-mac", (payload) => {
+	safeOn("register-mac", (payload) => {
 		try {
 			// Client registers with an ECIES-encrypted { name } payload.
 			const { encPriv } = keyring.requireUnlocked();
@@ -511,7 +527,7 @@ io.on("connection", (socket) => {
 		}
 	});
 
-	socket.on("disconnect", () => {
+	safeOn("disconnect", () => {
 		const macUsername = activeUsers.get(socket.id);
 		if (macUsername) {
 			activeUsers.delete(socket.id);
@@ -542,7 +558,7 @@ io.on("connection", (socket) => {
 		}
 	});
 
-	socket.on("share-window-join", (data) => {
+	safeOn("share-window-join", (data) => {
 		// Student share windows announce themselves so we can sync current share state.
 		// Teacher "view student" windows are authorized exclusively via viewer-claim.
 		socket.emit("share-active", { active: shareActive });
@@ -550,7 +566,7 @@ io.on("connection", (socket) => {
 
 	// Teacher "view student" windows must prove authorization with a one-time
 	// token issued by the main process when the admin clicked "View Screen".
-	socket.on("viewer-claim", (data) => {
+	safeOn("viewer-claim", (data) => {
 		const claim = viewerTokens.get(data?.token);
 		if (!claim || Date.now() > claim.exp) {
 			audit("viewer-claim-rejected", {});
@@ -568,7 +584,7 @@ io.on("connection", (socket) => {
 
 	// A student share window asks to receive the teacher's broadcast or to
 	// stream its screen to a viewer. SDP is ECIES-encrypted by the student.
-	socket.on("screen-share-offer", (data) => {
+	safeOn("screen-share-offer", (data) => {
 		try {
 			const { encPriv } = keyring.requireUnlocked();
 			const sdp = JSON.parse(decryptFrom(encPriv, data.sdp));
@@ -597,7 +613,7 @@ io.on("connection", (socket) => {
 	});
 
 	// Answers are teacher-originated; the server signs them on their way to students.
-	socket.on("screen-share-answer", (data) => {
+	safeOn("screen-share-answer", (data) => {
 		try {
 			socket.to(data.targetId).emit(
 				"screen-share-answer",
@@ -612,7 +628,7 @@ io.on("connection", (socket) => {
 		}
 	});
 
-	socket.on("screen-share-ice-candidate", (data) => {
+	safeOn("screen-share-ice-candidate", (data) => {
 		// Student -> teacher: candidate is ECIES-encrypted; decrypt and forward.
 		// The envelope carries v:1 (no enc flag), so detect it by the version.
 		if (data.candidate && (data.candidate.enc === true || data.candidate.v === 1)) {
@@ -645,7 +661,7 @@ io.on("connection", (socket) => {
 
 	// Privileged teacher events from the network MUST be signed by the teacher's
 	// private key. Anything else is rejected and audited.
-	socket.on("teacher-start-share", (data) => {
+	safeOn("teacher-start-share", (data) => {
 		if (!verifySignedEnvelope("teacher-start-share", data)) {
 			audit("unauth-teacher-event", { type: "teacher-start-share" });
 			return;
@@ -653,7 +669,7 @@ io.on("connection", (socket) => {
 		handleTeacherStartShare(data.p?.persistent);
 	});
 
-	socket.on("teacher-stop-share", (data) => {
+	safeOn("teacher-stop-share", (data) => {
 		if (!verifySignedEnvelope("teacher-stop-share", data)) {
 			audit("unauth-teacher-event", { type: "teacher-stop-share" });
 			return;
@@ -664,7 +680,7 @@ io.on("connection", (socket) => {
 	// A "view student" window asks the student to start streaming. The window
 	// already proved authorization via viewer-claim (one-time token), so no
 	// signature is needed — but it MUST map to the student it claimed.
-	socket.on("request-student-stream", (data) => {
+	safeOn("request-student-stream", (data) => {
 		const viewingStudent = viewerWindows.get(socket.id);
 		if (!viewingStudent || viewingStudent !== data?.studentId) {
 			audit("unauth-view-request", { studentId: data?.studentId });

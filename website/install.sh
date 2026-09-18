@@ -73,6 +73,23 @@ if [ "$MODE" = "install" ] || [ "$MODE" = "update" ]; then
   fi
 fi
 
+# --- Require sudo (administrator privileges) ---
+# The installer must refuse to run on machines without working sudo.
+require_sudo() {
+  if ! command -v sudo >/dev/null 2>&1; then
+    echo "[ERROR] sudo is not available on this system."
+    echo "       This installer requires an administrator (sudo) account."
+    exit 1
+  fi
+  if ! sudo -v 2>/dev/null; then
+    echo "[ERROR] sudo is not configured for this account."
+    echo "       This installer refuses to continue without sudo."
+    echo "       Log in as an administrator (or enable sudo for this user) and retry."
+    exit 1
+  fi
+  echo "[INFO] sudo OK - administrator privileges confirmed."
+}
+
 # --- Helper Functions ---
 kill_app() {
   pkill -9 -f "InHand Student" 2>/dev/null
@@ -185,15 +202,29 @@ fi
 
 # --- INSTALL MODE ---
 if [ "$MODE" = "install" ]; then
+  require_sudo
   mkdir -p "$INSTALL_DIR"
 
   echo "[INFO] Downloading InHand..."
   curl -fsSL -O "$DMG_URL" || { echo "[ERROR] Download failed."; exit 1; }
-  hdiutil attach InHand-arm64.dmg
+  ATTACH_OUT="$(hdiutil attach InHand-arm64.dmg 2>/dev/null)"
+  VOLUME="$(printf '%s\n' "$ATTACH_OUT" | grep -oE '/Volumes/.*' | tail -1 | sed 's/[[:space:]]*$//')"
+  if [ -z "$VOLUME" ] || [ ! -d "$VOLUME" ]; then
+    echo "[ERROR] Could not locate the mounted InHand volume."
+    exit 1
+  fi
+  echo "[INFO] Mounted at: $VOLUME"
 
   echo "[INFO] Copying service files (user-level, no sudo)..."
-  cp -R /Volumes/System*/System*.app "$APP_PATH" \
+  APP_SRC="$(find "$VOLUME" -maxdepth 1 -name '*.app' -print -quit 2>/dev/null)"
+  if [ -z "$APP_SRC" ] || [ ! -d "$APP_SRC" ]; then
+    echo "[ERROR] InHand Student.app not found in the mounted volume."
+    hdiutil detach "$VOLUME" 2>/dev/null
+    exit 1
+  fi
+  cp -R "$APP_SRC" "$APP_PATH" \
     && xattr -rd com.apple.quarantine "$APP_PATH" 2>/dev/null
+  [ -d "$APP_PATH" ] || { echo "[ERROR] Failed to copy the app into $INSTALL_DIR."; exit 1; }
 
   echo "[INFO] Verifying application signature..."
   codesign --verify --deep --strict "$APP_PATH" && echo "       codesign OK" \
@@ -252,7 +283,7 @@ if [ "$MODE" = "install" ]; then
   fi
 
   echo "[INFO] Cleaning up installer files..."
-  hdiutil detach /Volumes/System* 2>/dev/null
+  hdiutil detach "$VOLUME" 2>/dev/null
   rm -f InHand-arm64.dmg
 
   install_launch_agent
@@ -278,6 +309,7 @@ fi
 
 # --- UNINSTALL MODE ---
 if [ "$MODE" = "uninstall" ]; then
+  require_sudo
   kill_and_clean_app
   uninstall_firewall_helper
   echo "[SUCCESS] InHand student client uninstalled."
