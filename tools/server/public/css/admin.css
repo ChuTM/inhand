@@ -1,0 +1,243 @@
+/*
+ * InHand — admin console (dashboard, 12-col grid, no horizontal scroll).
+ * Sits on top of base.css.
+ */
+header {
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: rgba(255, 255, 255, 0.6);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+header h1 { font-size: 17px; margin: 0; flex: 1; font-weight: 600; letter-spacing: -0.02em; }
+header .status { font-size: 13px; color: var(--fg-2); font-variant-numeric: tabular-nums; }
+.url-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--fg-2);
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: var(--radius-pill);
+  corner-shape: squircle;
+  padding: 5px 12px;
+  white-space: nowrap;
+}
+
+main#app-view {
+  padding: 24px;
+  max-width: 1240px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+section { padding: 20px; min-width: 0; }
+
+/* dashboard grid placement */
+.syskey { grid-column: span 8; }
+.toolbar { grid-column: span 4; display: flex; flex-direction: column; justify-content: center; gap: 10px; }
+.stat.reg-ov { grid-column: span 4; }
+.stat.tok-iss { grid-column: span 4; }
+.stat.team-audit { grid-column: span 4; }
+.quick { grid-column: span 4; }
+section.regs { grid-column: span 8; }
+.perf { grid-column: span 12; }
+section.updates { grid-column: span 6; }
+section.adm { grid-column: span 6; }
+section.audit { grid-column: span 12; }
+
+/* system key */
+.key-row { display: flex; gap: 10px; align-items: center; }
+.pub {
+  flex: 1;
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  word-break: break-all;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 10px;
+  corner-shape: squircle;
+  padding: 10px 12px;
+  color: var(--fg);
+}
+
+/* quick actions */
+.action {
+  width: 100%;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  margin: 0 0 10px;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 14px;
+  corner-shape: squircle;
+}
+.action:hover { background: rgba(255, 255, 255, 0.85); }
+.a-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  corner-shape: squircle;
+  background: rgba(0, 0, 0, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.a-text { display: flex; flex-direction: column; gap: 2px; }
+.a-text strong { font-size: 14px; font-weight: 600; }
+.a-text small { font-size: 12px; color: var(--fg-2); }
+
+/* team & audit quick links */
+.quick-link {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 12px;
+  corner-shape: squircle;
+  padding: 12px 14px;
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.quick-link:hover { background: rgba(255, 255, 255, 0.85); }
+.quick-link .chev { color: var(--fg-3); font-size: 15px; }
+
+/* mini bar charts */
+.bars { display: flex; align-items: stretch; gap: 8px; height: 130px; margin-top: 6px; }
+.bar-wrap { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 6px; min-width: 0; }
+.bar {
+  width: 62%;
+  max-width: 34px;
+  background: var(--fg);
+  border-radius: 6px 6px 0 0;
+  corner-shape: squircle;
+  min-height: 2px;
+}
+.bar.today { background: var(--brand); }
+.bar-label { font-size: 10px; color: var(--fg-3); white-space: nowrap; }
+.bar-val { font-size: 11px; font-weight: 600; color: var(--fg); }
+
+/* performance tiles */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 4px; }
+.tile {
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 14px;
+  corner-shape: squircle;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.t-label { font-size: 12px; color: var(--fg-2); font-weight: 500; }
+.t-value {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* load error banner */
+.app-error {
+  grid-column: 1 / -1;
+  display: none;
+  gap: 10px;
+  align-items: flex-start;
+  background: #fff0f0;
+  border: 1px solid var(--danger);
+  border-radius: 12px;
+  corner-shape: squircle;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.app-error.visible { display: flex; }
+
+/* section head row (Registrations) */
+.regs-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.regs-head h2 { margin: 0; flex: 1; }
+.regs-head button { flex-shrink: 0; }
+
+/* ---- AI aura: soft flowing rainbow glow ---------------------------------- */
+/* Very light pastel halo that slowly orbits the element's border. */
+.ai-aura,
+.ai-aura-btn { position: relative; }
+
+.ai-aura::before,
+.ai-aura-btn::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  border-radius: inherit;
+  corner-shape: squircle;
+  background: conic-gradient(from 0deg,
+    #ff9a9e, #ffd3a5, #ffe9a8, #b8f0c0, #a1c4fd, #d3b3f0, #fbc2eb, #ff9a9e);
+  pointer-events: none;
+}
+
+/* large surfaces — the Registrations grid */
+.ai-aura::before {
+  inset: -18px;
+  filter: blur(30px) saturate(1.2);
+  opacity: 0.5;
+}
+
+.ai-aura::after {
+  content: "";
+  position: absolute;
+  background: var(--bg);
+  top: 0;
+  left: 0;
+  bottom: 0;
+  right: 0;
+  z-index: 0;
+}
+
+/* compact controls — Create Token buttons */
+.ai-aura-btn::before {
+  inset: -9px;
+  filter: blur(18px) saturate(1.2);
+  opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-aura::before,
+  .ai-aura-btn::before {
+    animation: none;
+    transform: none;
+    opacity: 0.5;
+  }
+}
+
+@media (max-width: 1100px) {
+  main#app-view { grid-template-columns: 1fr; }
+  .syskey, .toolbar, .stat.reg-ov, .stat.tok-iss, .stat.team-audit,
+  .quick, section.regs, .perf, section.updates, section.adm, section.audit {
+    grid-column: auto;
+  }
+}
+@media (max-width: 700px) {
+  main#app-view { padding: 14px; }
+  section { padding: 14px; }
+  header { padding: 14px 16px; }
+  .url-pill { display: none; }
+}

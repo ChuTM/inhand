@@ -17,6 +17,7 @@ const mode = urlParams.get("mode");
 const studentId = urlParams.get("studentId");
 const serverUrlParam = urlParams.get("serverUrl");
 const persistentParam = urlParams.get("persistent");
+const authToken = urlParams.get("auth");
 
 if (persistentParam === "true") {
 	window.electronAPI.setAlwaysOnTop(true);
@@ -37,11 +38,12 @@ async function init() {
 		if (mode === "view-student" && studentId) {
 			currentMode = "view-student";
 			targetId = studentId;
-			socket.emit("share-window-join", {
-				role: "viewer",
-				studentId,
+			// Prove this window is the teacher's: the main process minted a
+			// one-time token when the admin clicked "View Screen".
+			socket.emit("viewer-claim", { token: authToken, studentId });
+			socket.on("viewer-claim-ok", () => {
+				startViewStudent(studentId);
 			});
-			startViewStudent(studentId);
 		} else if (mode === "teacher-preview") {
 			currentMode = "teacher-preview";
 			startTeacherPreview();

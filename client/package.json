@@ -1,47 +1,53 @@
 {
-	"name": "com.system.wallpaper.service",
-	"version": "1.3.0",
-	"description": "System Wallpaper Management Service",
-	"main": "main.js",
-	"productName": "System Wallpaper Service",
-	"scripts": {
-		"start": "electron .",
-		"build": "electron-builder"
-	},
-	"dependencies": {
-		"electron-store": "^8.1.0",
-		"socket.io-client": "^4.7.2"
-	},
-	"devDependencies": {
-		"electron": "^28.0.0",
-		"electron-builder": "^24.6.4"
-	},
-	"build": {
-		"appId": "com.system.wallpaper.service",
-		"mac": {
-			"icon": "res/logo.icns",
-			"category": "public.app-category.utilities",
-			"target": [
-				"dmg"
-			],
-			"extendInfo": {
-				"LSUIElement": true,
-				"NSAppleEventsUsageDescription": "This service is required to manage system-wide desktop wallpapers."
-			}
-		},
-		"dmg": {
-			"icon": "res/logo.icns",
-			"window": {
-				"width": 450,
-				"height": 350
-			},
-			"contents": [
-				{
-					"x": 225,
-					"y": 170,
-					"type": "file"
-				}
-			]
-		}
-	}
+  "name": "com.inhand.student",
+  "version": "1.3.0",
+  "description": "InHand Student — wallpaper management & classroom screen sharing service",
+  "main": "main.js",
+  "productName": "InHand Student",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "dependencies": {
+    "electron-store": "^8.1.0",
+    "socket.io-client": "^4.7.2"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.6.4"
+  },
+  "build": {
+    "appId": "com.inhand.student",
+    "mac": {
+      "icon": "res/logo.icns",
+      "category": "public.app-category.utilities",
+      "target": [
+        "dmg"
+      ],
+      "extendInfo": {
+        "LSUIElement": true,
+        "NSAppleEventsUsageDescription": "This service is required to manage system-wide desktop wallpapers."
+      }
+    },
+    "dmg": {
+      "icon": "res/logo.icns",
+      "window": {
+        "width": 450,
+        "height": 350
+      },
+      "contents": [
+        {
+          "x": 225,
+          "y": 170,
+          "type": "file"
+        }
+      ]
+    },
+    "extraResources": [
+      {
+        "from": "helper/setdesktop",
+        "to": "helper/setdesktop"
+      }
+    ]
+  }
 }

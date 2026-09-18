@@ -1,0 +1,99 @@
+#!/bin/zsh
+# inhand-fwctl — manual control for the InHand LAN-only firewall helper.
+# Run as ROOT (sudo). This is the documented emergency/manual escape hatch.
+#
+#   sudo inhand-fwctl status              # show lock state + teacher key status
+#   sudo inhand-fwctl unlock              # FORCE unlock (flush pf rules + clear state)
+#   sudo inhand-fwctl lock --ttl 60       # manually apply LAN-only mode (emergency)
+#   sudo inhand-fwctl setkey <pub_b64>    # set/replace the teacher's Ed25519 public key
+#   sudo inhand-fwctl uninstall           # flush rules, unload daemon, remove files
+#
+# Emergency force-close (worst case, bypasses everything):
+#   sudo /sbin/pfctl -a com.inhand -F all
+#   sudo rm -f "/Library/Application Support/InHand/fw-state.json"
+
+set -u
+FW_DIR="/Library/Application Support/InHand"
+STATE="$FW_DIR/fw-state.json"
+CONFIG="$FW_DIR/fw-config.json"
+RULES="$FW_DIR/fw.rules"
+ANCHOR="com.inhand"
+PLIST="/Library/LaunchDaemons/com.inhand.fw.plist"
+LABEL="com.inhand.fw"
+
+pfctl_bin() { /sbin/pfctl "$@"; }
+
+apply_rules() {
+  if [[ ! -f "$RULES" ]]; then
+    echo "inhand-fwctl: rules file missing ($RULES) — reinstall helper via install.sh -f" >&2
+    return 1
+  fi
+  /sbin/pfctl -e >/dev/null 2>&1 || true
+  /sbin/pfctl -a "$ANCHOR" -f "$RULES" || return 1
+  return 0
+}
+
+flush_rules() {
+  /sbin/pfctl -a "$ANCHOR" -F all 2>/dev/null || true
+}
+
+cmd_status() {
+  echo "--- InHand firewall helper ---"
+  echo "state file : $STATE"
+  if [[ -f "$STATE" ]]; then
+    /usr/bin/plutil -p "$STATE" 2>/dev/null || cat "$STATE"
+  else
+    echo "locked     : no (no state file)"
+  fi
+  echo "teacher key: $([[ -f "$CONFIG" ]] && /usr/libexec/PlistBuddy -c 'Print :signPub' "$CONFIG" 2>/dev/null || echo "not set")"
+  echo "daemon     : $(/bin/launchctl print system/$LABEL >/dev/null 2>&1 && echo "loaded" || echo "not loaded")"
+}
+
+cmd_unlock() {
+  flush_rules
+  rm -f "$STATE"
+  echo "inhand-fwctl: unlocked (pf rules flushed, state cleared)."
+  echo "         The daemon will stay loaded; the teacher can re-lock at any time."
+}
+
+cmd_lock() {
+  local ttl="${1:-60}"
+  apply_rules || { echo "inhand-fwctl: failed to apply rules" >&2; exit 1; }
+  local now_ms=$(( $(date +%s) * 1000 ))
+  local deadline=$(( now_ms + ttl * 60000 ))
+  cat > "$STATE" <<EOF
+{"locked":true,"since":$now_ms,"deadline":$deadline,"ttlMinutes":$ttl}
+EOF
+  echo "inhand-fwctl: locked for ${ttl} minutes (deadline $(date -r $((deadline/1000)) '+%H:%M:%S'))."
+}
+
+cmd_setkey() {
+  local pub="${1:-}"
+  if [[ -z "$pub" ]]; then
+    echo "usage: sudo inhand-fwctl setkey <base64_ed25519_spki_pub>" >&2
+    exit 2
+  fi
+  cat > "$CONFIG" <<EOF
+{"signPub":"$pub"}
+EOF
+  echo "inhand-fwctl: teacher key updated."
+  echo "         Tip: get the current key from the host admin UI (Server status → Cloud/Teacher key)."
+}
+
+cmd_uninstall() {
+  flush_rules
+  /bin/launchctl bootout system/$LABEL 2>/dev/null || true
+  rm -f "$PLIST" "$STATE" "$CONFIG" "$RULES" "$FW_DIR/inhand-fw.sock" "$FW_DIR/fw.log"
+  echo "inhand-fwctl: helper removed (rules flushed, daemon unloaded, files deleted)."
+}
+
+case "${1:-}" in
+  status)   cmd_status ;;
+  unlock)   cmd_unlock ;;
+  lock)     cmd_lock "${2#--ttl=}" ;;
+  setkey)   cmd_setkey "${2:-}" ;;
+  uninstall) cmd_uninstall ;;
+  *)
+    echo "usage: sudo inhand-fwctl {status|unlock|lock --ttl=MIN|setkey <pub>|uninstall}" >&2
+    exit 2 ;;
+esac

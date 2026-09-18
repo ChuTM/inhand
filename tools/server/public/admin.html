@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>InHand — Cloud Admin</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/admin.css">
+</head>
+<body>
+<header id="app-header">
+  <h1>InHand Cloud Admin</h1>
+  <span class="url-pill" id="url-pill"></span>
+  <span class="status" id="session-info"></span>
+  <button class="ghost" data-action="logout">Sign out</button>
+</header>
+
+<main id="app-view">
+  <div class="app-error" id="app-error"></div>
+
+  <section class="syskey">
+    <h2>System Key</h2>
+    <div class="key-row">
+      <code class="pub" id="cloud-pub">Loading…</code>
+      <button class="ghost" id="btn-copy" data-action="copyPub">copy</button>
+    </div>
+  </section>
+
+  <section class="toolbar">
+    <input id="search-input" placeholder="Search…" autocomplete="off">
+    <select id="filter-select">
+      <option value="all">All status</option>
+      <option value="active">Active</option>
+      <option value="expired">Expired</option>
+    </select>
+  </section>
+
+  <section class="stat reg-ov">
+    <h2>Registrations Overview</h2>
+    <div class="bars" id="reg-chart"></div>
+  </section>
+
+  <section class="stat tok-iss">
+    <h2>Recent Token Issuance</h2>
+    <div class="bars" id="tok-chart"></div>
+  </section>
+
+  <section class="stat team-audit">
+    <h2>Team and Audit</h2>
+    <button class="quick-link" data-action="openCard" data-arg="adm">
+      Admin team management <span class="chev">›</span>
+    </button>
+    <button class="quick-link" data-action="openCard" data-arg="audit">
+      View full Audit Log <span class="chev">›</span>
+    </button>
+  </section>
+
+  <section class="quick">
+    <h2>Quick Actions</h2>
+    <button class="action" data-action="openTokenDialog">
+      <span class="a-icon" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      </span>
+      <span class="a-text"><strong>Create New Registration Token</strong><small>Generate a one-time token for a teacher</small></span>
+    </button>
+    <button class="action" data-action="openCard" data-arg="updates">
+      <span class="a-icon" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+      </span>
+      <span class="a-text"><strong>Bulk Manifest Update</strong><small>Publish or remove an update manifest</small></span>
+    </button>
+    <button class="action" data-action="openCard" data-arg="adm">
+      <span class="a-icon" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H7a4 4 0 00-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M21 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+      </span>
+      <span class="a-text"><strong>Team Role Assignment</strong><small>Manage admin allowlist and passkeys</small></span>
+    </button>
+  </section>
+
+  <section class="regs ai-aura">
+    <div class="regs-head">
+      <h2>Registrations</h2>
+      <button class="primary" data-action="openTokenDialog">Create a Token</button>
+    </div>
+    <p class="muted">Schools currently registered with the cloud discovery service. A teacher enters a token once, when registering a school — one public IP is one registration.</p>
+    <div id="registrations-list"></div>
+
+    <details class="sub-collapse">
+      <summary id="tokens-summary">Registration tokens</summary>
+      <div id="tokens-list"></div>
+    </details>
+  </section>
+
+  <section class="perf">
+    <h2>System Performance Overview</h2>
+    <div class="tiles">
+      <div class="tile"><span class="t-label">API Latency</span><span class="t-value" id="p-latency">—</span></div>
+      <div class="tile"><span class="t-label">Active Registrations</span><span class="t-value" id="p-regs">—</span></div>
+      <div class="tile"><span class="t-label">Active Tokens</span><span class="t-value" id="p-tokens">—</span></div>
+      <div class="tile"><span class="t-label">Published Updates</span><span class="t-value" id="p-updates">—</span></div>
+    </div>
+  </section>
+
+  <section class="updates" id="card-updates">
+    <button class="card-head" data-action="toggleCard" data-body="updates-body">
+      Update manifests <span class="chev">›</span>
+    </button>
+    <div class="card-body" id="updates-body" style="display:none">
+      <p class="muted">Publishing a manifest makes every client that polls <code>/api/v1/update</code> (boot + every 4h) verify the cloud signature and auto-update.</p>
+      <div class="row">
+        <input id="upd-version" placeholder="Version, e.g. 1.3.0" style="max-width:140px">
+        <input id="upd-platform" placeholder="mac-arm64 | mac-x64 | win" style="max-width:180px">
+        <input id="upd-url" placeholder="https://…/InHand.dmg">
+        <input id="upd-sha" placeholder="sha256" style="max-width:300px">
+      </div>
+      <button class="primary" data-action="publishUpdate" style="margin-top:10px">Publish</button>
+      <div id="updates-list"></div>
+    </div>
+  </section>
+
+  <section class="adm" id="card-adm">
+    <button class="card-head" data-action="toggleCard" data-body="adm-body">
+      Admin team <span class="chev">›</span>
+    </button>
+    <div class="card-body" id="adm-body" style="display:none">
+      <p class="muted">Only allowlisted emails can sign in (Google or passkey). Everyone here can manage the console.</p>
+      <div class="row">
+        <input id="admin-email" placeholder="teammate@example.com">
+        <button class="primary" data-action="addAdmin">Add admin</button>
+      </div>
+      <div id="admins-list"></div>
+
+      <h2 style="margin-top:22px">Passkeys</h2>
+      <p class="muted">Passkeys are bound to an allowlisted admin account. Remove one to force a re-enrolment.</p>
+      <button class="primary" data-action="registerPasskey">Add a passkey for my account</button>
+      <div id="credentials-list"></div>
+    </div>
+  </section>
+
+  <section class="audit" id="card-audit">
+    <button class="card-head" data-action="toggleCard" data-body="audit-body">
+      Audit log <span class="chev">›</span>
+    </button>
+    <div class="card-body" id="audit-body" style="display:none">
+      <p class="muted">Every privileged action — who did what, when, from where.</p>
+      <div id="audit-list"></div>
+    </div>
+  </section>
+</main>
+
+<dialog id="token-dialog" class="glass"></dialog>
+
+<script src="/js/api.js"></script>
+<script src="/js/admin.js"></script>
+</body>
+</html>

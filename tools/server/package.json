@@ -1,0 +1,19 @@
+{
+  "name": "inhand-cloud-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "InHand cloud server: registration, discovery, update manifests. Storage-pluggable, fully local-runnable.",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "@simplewebauthn/server": "^11.0.0",
+    "firebase-admin": "^12.7.0"
+  },
+  "scripts": {
+    "start": "node scripts/server.mjs",
+    "test": "node scripts/test.mjs",
+    "test:serverless": "node scripts/test-serverless.mjs"
+  }
+}

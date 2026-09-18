@@ -70,7 +70,7 @@ fetch("./markdown/quick_download.md")
 				const rules = [
 					["https://", ""],
 					["http://", ""],
-					["./", "wallpg.web.app/"],
+					["./", "ihinstall.web.app/"],
 				];
 
 				// Find the first rule whose prefix matches the input

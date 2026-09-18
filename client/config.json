@@ -1,5 +1,7 @@
 {
-    "serverUrl": "http://localhost:7100",
-    "wallpaperPath": "/System/Library/CoreServices/DefaultDesktop.heic",
-    "checkInterval": 1000
+	"apiUrl": "https://inhand-server.vercel.app",
+	"serverUrl": "http://localhost:7100",
+	"wallpaperPath": "/System/Library/CoreServices/DefaultDesktop.heic",
+	"checkInterval": 1000,
+	"cloudPub": "MCowBQYDK2VwAyEAdXYCtrVoyQuuI6dQk7+u3XjEyWCJdBxWfiWSCjWfZ3E="
 }

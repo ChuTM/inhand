@@ -3,70 +3,87 @@ const {
 	BrowserWindow,
 	ipcMain,
 	desktopCapturer,
-	Tray,
-	Menu,
-	nativeImage,
 	screen,
 } = require("electron");
-const { exec } = require("child_process");
+const { execFile } = require("child_process");
 const os = require("os");
 const path = require("path");
 const fs = require("fs");
+const net = require("net");
 const https = require("https");
+const http = require("http");
+const crypto = require("crypto");
 const io = require("socket.io-client");
 const Store = require("electron-store");
+const {
+	canonicalize,
+	verifyPayload,
+	encryptTo,
+	createNonceGuard,
+} = require("./lib/crypto.js");
 
 // --- DYNAMIC PATHING ---
 const APP_BUNDLE_DIR = app.isPackaged
 	? path.join(path.dirname(app.getPath("exe")), "../../../../")
 	: __dirname;
 
-// --- SYSTEM VARIABLE CONFIGURATION ---
-const DEFAULT_URL = "https://wallpg.web.app/init_config.json";
-let INIT_CONFIG_URL = process.env.WP_CONFIG_URL || DEFAULT_URL;
+// Native wallpaper setter (NSWorkspace API, no Automation permission needed).
+// Packaged apps carry it under Contents/Resources/helper/setdesktop.
+const SETDESKTOP_HELPER = app.isPackaged
+	? path.join(process.resourcesPath, "helper", "setdesktop")
+	: path.join(__dirname, "helper", "setdesktop");
 
-console.log("Initialization URL:", INIT_CONFIG_URL);
+// --- CONFIG ---
+const BUNDLED_CONFIG_PATH = path.join(__dirname, "config.json");
+const RUNTIME_CONFIG_PATH = path.join(app.getPath("userData"), "config.json");
 
-function ensureSystemVariable() {
-	if (!process.env.WP_CONFIG_URL) {
-		const shellProfile = path.join(
-			os.homedir(),
-			os.userInfo().shell.includes("zsh") ? ".zshrc" : ".bash_profile",
-		);
+function readConfigFile(file) {
+	try {
+		return JSON.parse(fs.readFileSync(file, "utf8"));
+	} catch {
+		return {};
+	}
+}
+
+function ensureRuntimeConfig() {
+	if (!fs.existsSync(RUNTIME_CONFIG_PATH)) {
 		try {
-			if (fs.existsSync(shellProfile)) {
-				const content = fs.readFileSync(shellProfile, "utf8");
-				if (!content.includes("WP_CONFIG_URL")) {
-					fs.appendFileSync(
-						shellProfile,
-						`\nexport WP_CONFIG_URL="${DEFAULT_URL}"\n`,
-					);
-				}
-			} else {
-				fs.writeFileSync(
-					shellProfile,
-					`export WP_CONFIG_URL="${DEFAULT_URL}"\n`,
-				);
-			}
-			process.env.WP_CONFIG_URL = DEFAULT_URL;
+			fs.copyFileSync(BUNDLED_CONFIG_PATH, RUNTIME_CONFIG_PATH);
 		} catch (e) {
-			console.error("Could not write to shell profile:", e);
+			console.error("Could not seed runtime config:", e);
 		}
 	}
 }
-ensureSystemVariable();
+ensureRuntimeConfig();
+
+const bundledConfig = readConfigFile(BUNDLED_CONFIG_PATH);
+const runtimeConfig = readConfigFile(RUNTIME_CONFIG_PATH);
+
+// Priority: WP_API_URL env > runtime config > bundled config > default
+const API_URL =
+	process.env.WP_API_URL ||
+	runtimeConfig.apiUrl ||
+	"https://inhand-server.vercel.app";
+const CLOUD_PUB =
+	process.env.WP_CLOUD_PUB ||
+	runtimeConfig.cloudPub ||
+	"";
 
 // --- INTERNAL STATES ---
 const store = new (Store.default || Store)();
 const DEVICE_NAME = os.userInfo().username;
-let toolUsable = true;
+let toolUsable = store.get("toolUsable") !== false;
 
 let settings = {
-	serverUrl: store.get("serverUrl") || "http://localhost:7100",
+	serverUrl:
+		store.get("serverUrl") ||
+		runtimeConfig.serverUrl ||
+		"http://localhost:7100",
 	wallpaperPath:
 		store.get("wallpaperPath") ||
+		runtimeConfig.wallpaperPath ||
 		"/System/Library/CoreServices/DefaultDesktop.heic",
-	checkInterval: store.get("checkInterval") || 5000,
+	checkInterval: store.get("checkInterval") || runtimeConfig.checkInterval || 5000,
 };
 
 if (settings.checkInterval < 1000) {
@@ -76,17 +93,188 @@ if (settings.checkInterval < 1000) {
 
 let socket = null;
 let enforcementTimer = null;
+let discoveryRetryTimer = null;
 
+let teacherPub = null; // { signPub, encPub } — from cloud discovery
 let shareWindows = new Map(); // BrowserWindow -> mode ("teacher-view" | "student-share")
 
-// Teacher broadcast state (used by the tray "reopen" action)
 let teacherSharing = false;
 let lastTeacherId = null;
 let lastPersistent = false;
 
-let tray = null;
 
-// Screen Capture IPC Handler
+const nonceGuard = createNonceGuard(120000);
+
+// --- AUDIT ---
+const AUDIT_FILE = path.join(app.getPath("userData"), "audit.log");
+function audit(event, detail = {}) {
+	const line = JSON.stringify({
+		ts: new Date().toISOString(),
+		event,
+		...detail,
+	});
+	try {
+		fs.appendFileSync(AUDIT_FILE, line + "\n");
+	} catch {
+		/* best effort */
+	}
+	console.log("[audit]", event, JSON.stringify(detail));
+}
+
+// --- LAN GATE: privileged behavior only on private addresses ---
+function isPrivateAddress(ip) {
+	if (!ip) return false;
+	const host = String(ip).toLowerCase().replace(/^\[|\]$/g, "");
+	if (host === "localhost" || host === "127.0.0.1" || host === "::1") return true;
+	const m = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+	if (!m) return false;
+	const a = Number(m[1]);
+	const b = Number(m[2]);
+	if (a === 10) return true;
+	if (a === 172 && b >= 16 && b <= 31) return true;
+	if (a === 192 && b === 168) return true;
+	if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+	return false;
+}
+
+// Apply a discovery result: update the server URL + teacher keys and (re)
+// connect the signaling socket. Returns true when the server is on a private
+// LAN (privileged features enabled).
+async function applyDiscovery(discovery) {
+	settings.serverUrl = discovery.serverUrl;
+	teacherPub = discovery.teacherPub;
+
+	// Keep the root firewall helper's teacher key in sync (first-set wins).
+	fwSyncTeacherKey();
+
+	const host = getServerHost(settings.serverUrl);
+	if (!host || !isPrivateAddress(host)) {
+		// LAN gate: privileged features stay disabled on public networks.
+		audit("lan-gate", { serverUrl: settings.serverUrl, host });
+		console.warn(
+			`[lan-gate] Server ${settings.serverUrl} is not on a private LAN; ` +
+				"commands, always-on-top and screen viewing are disabled.",
+		);
+		return false;
+	}
+	if (!socket) {
+		connectSocket();
+	} else if (
+		socket.io &&
+		socket.io.uri &&
+		socket.io.uri.replace(/\/+$/, "") !== settings.serverUrl.replace(/\/+$/, "")
+	) {
+		socket.disconnect();
+		connectSocket();
+	}
+	return true;
+}
+
+function getServerHost(url) {
+	try {
+		return new URL(url).hostname;
+	} catch {
+		return null;
+	}
+}
+
+// --- DISCOVERY (cloud) ---
+async function runDiscovery() {
+	if (!API_URL) {
+		console.warn("No API URL configured; using config fallback.");
+		return {
+			serverUrl: settings.serverUrl,
+			teacherPub: null,
+			source: "config",
+		};
+	}
+	try {
+		const base = API_URL.replace(/\/+$/, "");
+		const res = await fetch(`${base}/api/v1/discover`, {
+			signal: AbortSignal.timeout(8000),
+		});
+		if (res.status === 204) {
+			throw new Error("No teacher registered on this public IP");
+		}
+		const data = await res.json();
+		if (!data || !data.payload || !data.signature) {
+			throw new Error("Malformed discovery response");
+		}
+
+		// Verify the cloud's signature over the base64 payload.
+		const hasCloudPub =
+			CLOUD_PUB && !CLOUD_PUB.startsWith("REPLACE_");
+		if (hasCloudPub) {
+			if (!verifyPayload(CLOUD_PUB, data.payload, data.signature)) {
+				audit("discover-signature-rejected", {});
+				throw new Error("Cloud discovery signature invalid");
+			}
+		} else {
+			console.warn(
+				"cloudPub not configured (placeholder). Skipping cloud signature verification.",
+			);
+		}
+
+		const payload = JSON.parse(
+			Buffer.from(data.payload, "base64").toString("utf8"),
+		);
+		if (!payload.lanIp || !isPrivateAddress(payload.lanIp)) {
+			audit("discover-lan-rejected", { lanIp: payload.lanIp });
+			throw new Error("Discovery returned a non-private LAN IP");
+		}
+		if (payload.expiresAt && Date.now() > new Date(payload.expiresAt).getTime()) {
+			throw new Error("Discovery payload expired");
+		}
+		if (!payload.signPub || !payload.encPub) {
+			throw new Error("Discovery missing teacher public keys");
+		}
+
+		const serverUrl = `http://${payload.lanIp}:7100`;
+		const pubs = { signPub: payload.signPub, encPub: payload.encPub };
+		store.set("discovery", {
+			serverUrl,
+			teacherPub: pubs,
+			expiresAt: payload.expiresAt || null,
+		});
+		audit("discover-ok", { lanIp: payload.lanIp, source: "cloud" });
+		return { serverUrl, teacherPub: pubs, source: "cloud" };
+	} catch (err) {
+		console.error("Discovery failed:", err.message);
+		audit("discover-failed", { message: err.message });
+		// Cached discovery (re-verified each boot against the cloud when possible)
+		const cached = store.get("discovery");
+		if (
+			cached &&
+			cached.teacherPub &&
+			(!cached.expiresAt || Date.now() < new Date(cached.expiresAt).getTime())
+		) {
+			console.warn("Falling back to cached discovery.");
+			return {
+				serverUrl: cached.serverUrl,
+				teacherPub: cached.teacherPub,
+				source: "cached",
+			};
+		}
+		return {
+			serverUrl: settings.serverUrl,
+			teacherPub: null,
+			source: "config",
+		};
+	}
+}
+
+// --- VERIFICATION ---
+function isVerifiedTeacherEvent(type, env) {
+	if (!teacherPub || !teacherPub.signPub) return false;
+	if (!nonceGuard.check(env)) return false;
+	return verifyPayload(
+		teacherPub.signPub,
+		canonicalize(type, env.p, env.ts, env.n),
+		env.s,
+	);
+}
+
+// --- IPC: renderer asks MAIN to do all crypto (keys never touch renderers) ---
 ipcMain.handle("GET_SCREEN_SOURCES", async () => {
 	const sources = await desktopCapturer.getSources({
 		types: ["screen", "window"],
@@ -99,6 +287,20 @@ ipcMain.handle("GET_SCREEN_SOURCES", async () => {
 	}));
 });
 
+ipcMain.handle("ENCRYPT_FOR_TEACHER", (_event, obj) => {
+	if (!teacherPub || !teacherPub.encPub) throw new Error("No teacher key");
+	// RTCSessionDescription/RTCIceCandidate instances arrive as null after the
+	// IPC structured clone. Fail loudly instead of forwarding a null payload.
+	if (obj === null || typeof obj !== "object") {
+		throw new Error("ENCRYPT_FOR_TEACHER payload was lost (pass plain {type,sdp})");
+	}
+	return encryptTo(teacherPub.encPub, obj);
+});
+
+ipcMain.handle("VERIFY_TEACHER_EVENT", (_event, { type, env }) => {
+	return isVerifiedTeacherEvent(type, env);
+});
+
 ipcMain.on("SET_ALWAYS_ON_TOP", (event, flag) => {
 	const win = BrowserWindow.fromWebContents(event.sender);
 	if (win) {
@@ -106,8 +308,6 @@ ipcMain.on("SET_ALWAYS_ON_TOP", (event, flag) => {
 	}
 });
 
-// Renderer asks the main process to close a share window (needed because
-// persistent windows are locked against direct window.close()).
 ipcMain.on("CLOSE_SHARE_WINDOW", (event) => {
 	const win = BrowserWindow.fromWebContents(event.sender);
 	if (win && !win.isDestroyed()) {
@@ -116,8 +316,10 @@ ipcMain.on("CLOSE_SHARE_WINDOW", (event) => {
 	}
 });
 
+// --- SHARE WINDOWS ---
 function createShareWindow(mode, targetId, sourceId, persistent = false) {
-	const shareUrl = `file://${path.join(__dirname, "share.html")}?mode=${mode}&teacherId=${encodeURIComponent(targetId)}&persistent=${persistent}&serverUrl=${encodeURIComponent(settings.serverUrl)}`;
+	const encPubParam = teacherPub?.encPub || "";
+	const shareUrl = `file://${path.join(__dirname, "share.html")}?mode=${mode}&teacherId=${encodeURIComponent(targetId)}&persistent=${persistent}&serverUrl=${encodeURIComponent(settings.serverUrl)}&encPub=${encodeURIComponent(encPubParam)}`;
 
 	let win;
 
@@ -144,7 +346,6 @@ function createShareWindow(mode, targetId, sourceId, persistent = false) {
 		win.setAlwaysOnTop(true, "screen-saver");
 		win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 		win.setIgnoreMouseEvents(true, { forward: true });
-		// Float in the top-right corner of the primary display
 		try {
 			const { workArea } = screen.getPrimaryDisplay();
 			win.setPosition(
@@ -161,6 +362,7 @@ function createShareWindow(mode, targetId, sourceId, persistent = false) {
 			title: "Viewing Teacher Screen",
 			autoHideMenuBar: true,
 			alwaysOnTop: persistent,
+			backgroundColor: "#f5f5f7",
 			webPreferences: {
 				nodeIntegration: false,
 				contextIsolation: true,
@@ -169,8 +371,6 @@ function createShareWindow(mode, targetId, sourceId, persistent = false) {
 		});
 
 		if (persistent) {
-			// Persistent windows are locked: the student cannot close them.
-			// Only the main process can close them (sets __forceClose first).
 			win.__locked = true;
 			win.on("close", (e) => {
 				if (win.__locked && !win.__forceClose) {
@@ -181,6 +381,11 @@ function createShareWindow(mode, targetId, sourceId, persistent = false) {
 	}
 
 	win.loadURL(shareUrl);
+
+	win.webContents.on("console-message", (event, level, message) => {
+		console.log(`[share-window:${mode}] ${message}`);
+		if (level >= 2) audit("share-window-console", { mode, message });
+	});
 
 	win.on("closed", () => {
 		shareWindows.delete(win);
@@ -199,71 +404,442 @@ function stopShareWindowsForMode(mode) {
 	}
 }
 
-function reopenTeacherScreen() {
-	if (!teacherSharing || !lastTeacherId) return;
-	// Don't create a duplicate window
-	for (const [win, winMode] of shareWindows) {
-		if (winMode === "teacher-view" && !win.isDestroyed()) {
-			win.focus();
-			return;
+// --- LAN-ONLY FIREWALL HELPER (root daemon, client/helper/daemon.mjs) ---
+const FW_SOCKET = "/Library/Application Support/InHand/inhand-fw.sock";
+
+/**
+ * Send a single-line JSON request to the firewall helper and await its reply.
+ * Resolves { ok } from the daemon; rejects on transport/absence of the helper.
+ */
+function fwDaemonRequest(op, payload = {}, timeoutMs = 4000) {
+	return new Promise((resolve, reject) => {
+		const sock = net.connect(FW_SOCKET);
+		let out = "";
+		const timer = setTimeout(() => {
+			sock.destroy();
+			reject(new Error("firewall helper timeout"));
+		}, timeoutMs);
+		sock.setEncoding("utf8");
+		sock.on("connect", () => {
+			sock.write(JSON.stringify({ op, ...payload }) + "\n");
+		});
+		sock.on("data", (chunk) => {
+			out += chunk;
+			const idx = out.indexOf("\n");
+			if (idx === -1) return;
+			clearTimeout(timer);
+			sock.destroy();
+			try {
+				resolve(JSON.parse(out.slice(0, idx)));
+			} catch {
+				reject(new Error("firewall helper bad response"));
+			}
+		});
+		sock.on("error", (err) => {
+			clearTimeout(timer);
+			reject(
+				new Error(
+					"firewall helper not available (install it with: install.sh -f)",
+				),
+			);
+		});
+	});
+}
+
+/** Keep the daemon's teacher key in sync with discovery (first-set wins). */
+async function fwSyncTeacherKey() {
+	if (!teacherPub?.signPub) return;
+	try {
+		const res = await fwDaemonRequest("status");
+		if (res.ok && !res.keySet) {
+			const set = await fwDaemonRequest("setkey", {
+				signPub: teacherPub.signPub,
+			});
+			audit("fw-setkey", { ok: !!set.ok });
+		}
+	} catch (e) {
+		audit("fw-setkey-skip", { message: e.message });
+	}
+}
+
+// --- COMMAND WHITELIST ---
+function loadCommandWhitelist() {
+	const candidates = [
+		path.join(__dirname, "commands.json"),
+		path.join(__dirname, "..", "shared", "commands.json"),
+	];
+	for (const file of candidates) {
+		try {
+			return JSON.parse(fs.readFileSync(file, "utf8"));
+		} catch {
+			/* try next */
 		}
 	}
-	createShareWindow("teacher-view", lastTeacherId, null, lastPersistent);
+	return { version: 0, commands: {} };
 }
 
-// --- Tray ---
-
-function createTray() {
-	const icon = nativeImage
-		.createFromPath(path.join(__dirname, "res", "icon.png"))
-		.resize({ width: 18, height: 18 });
-	tray = new Tray(icon);
-	tray.setToolTip("Wallpaper Guard Client");
-	rebuildTrayMenu();
-	tray.on("double-click", () => reopenTeacherScreen());
+function validateCommand(cmd) {
+	const whitelist = loadCommandWhitelist();
+	if (!cmd || typeof cmd !== "object") {
+		return { ok: false, reason: "command must be an object" };
+	}
+	const def = whitelist.commands[cmd.type];
+	if (!def) return { ok: false, reason: `unknown command type: ${cmd.type}` };
+	for (const [key, spec] of Object.entries(def.params || {})) {
+		if (spec.required && cmd.params?.[key] === undefined) {
+			return { ok: false, reason: `missing required param: ${key}` };
+		}
+		if (
+			cmd.params?.[key] !== undefined &&
+			typeof cmd.params[key] !== spec.type
+		) {
+			return { ok: false, reason: `param ${key} must be ${spec.type}` };
+		}
+	}
+	return { ok: true };
 }
 
-function rebuildTrayMenu() {
-	if (!tray) return;
-	const menu = Menu.buildFromTemplate([
-		{
-			label: "Reopen Teacher's Screen",
-			enabled: teacherSharing,
-			click: () => reopenTeacherScreen(),
-		},
-		{ type: "separator" },
-		{
-			label: "Quit",
-			click: () => {
-				app.isQuitting = true;
-				app.quit();
-			},
-		},
-	]);
-	tray.setContextMenu(menu);
+// --- RESULT REPORTING (ECIES-encrypted) ---
+async function reportResult(command, result) {
+	if (!teacherPub?.encPub) return;
+	try {
+		const envelope = encryptTo(teacherPub.encPub, {
+			user: DEVICE_NAME,
+			command,
+			result,
+		});
+		await fetch(`${settings.serverUrl}/command-result`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ enc: true, ...envelope }),
+		});
+	} catch (e) {
+		console.error("Failed to report command result:", e.message);
+	}
 }
 
-const REPLACE_VARIABLES = {
-	"{{SERVER_URL}}": () => settings.serverUrl,
-	"{{DEVICE_NAME}}": () => DEVICE_NAME,
-};
+async function reportError(command, error) {
+	if (!teacherPub?.encPub) return;
+	try {
+		const envelope = encryptTo(teacherPub.encPub, {
+			deviceName: DEVICE_NAME,
+			command,
+			message: error.message || String(error),
+		});
+		await fetch(`${settings.serverUrl}/command-error`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ enc: true, ...envelope }),
+		});
+	} catch (e) {
+		console.error("Failed to report command error:", e.message);
+	}
+}
 
-// --- CORE FUNCTIONS ---
+// --- WHITELISTED COMMAND EXECUTION (no free shell) ---
+// `env` is the original teacher-signed envelope; lan-only re-forwards it to
+// the root firewall helper so the daemon can verify the signature itself.
+function executeCommand(cmd, env) {
+	const verdict = validateCommand(cmd);
+	if (!verdict.ok) {
+		audit("command-rejected", { reason: verdict.reason });
+		reportError(cmd, new Error(verdict.reason));
+		return;
+	}
+	audit("command-received", { type: cmd.type, params: cmd.params });
 
+	switch (cmd.type) {
+		case "wallpaper": {
+			let wallpaperPath = String(cmd.params.path);
+			const isUrl = /^https?:\/\//i.test(wallpaperPath);
+			if (
+				(!isUrl && !wallpaperPath.startsWith("/")) ||
+				wallpaperPath.includes("'") ||
+				wallpaperPath.includes('"') ||
+				wallpaperPath.includes("\n") ||
+				wallpaperPath.length > 512
+			) {
+				const msg = "wallpaper path rejected (must be an absolute POSIX path or http(s) URL)";
+				audit("wallpaper-rejected", { path: wallpaperPath });
+				reportError(cmd, new Error(msg));
+				return;
+			}
+			const finalize = (localPath) => {
+				settings.wallpaperPath = localPath;
+				store.set("wallpaperPath", localPath);
+				applyWallpaper(localPath, (error, stdout, stderr) => {
+					if (error) {
+						reportError(cmd, error);
+						return;
+					}
+					reportResult(cmd, { stdout: stdout || "wallpaper set", stderr });
+				});
+			};
+			if (isUrl) {
+				downloadWallpaper(wallpaperPath)
+					.then(finalize)
+					.catch((err) => {
+						audit("wallpaper-download-failed", { url: wallpaperPath, error: err.message });
+						reportError(cmd, err);
+					});
+			} else {
+				finalize(wallpaperPath);
+			}
+			break;
+		}
+		case "configMode": {
+			toolUsable = !!cmd.params.on;
+			store.set("toolUsable", toolUsable);
+			audit("config-mode", { on: toolUsable });
+			reportResult(cmd, {
+				stdout: `config mode ${toolUsable ? "enabled" : "disabled"}`,
+				stderr: "",
+			});
+			break;
+		}
+		case "update": {
+			const url = String(cmd.params.url);
+			const sha256 = String(cmd.params.sha256);
+			if (!url.startsWith("https://")) {
+				reportError(cmd, new Error("update URL must be HTTPS"));
+				return;
+			}
+			if (!/^[a-f0-9]{64}$/i.test(sha256)) {
+				reportError(cmd, new Error("update sha256 must be 64 hex chars"));
+				return;
+			}
+			reportResult(cmd, { stdout: "update started", stderr: "" });
+			runSelfUpdate(url, sha256);
+			break;
+		}
+		case "lan-only": {
+			if (!env) {
+				reportError(cmd, new Error("lan-only requires the signed envelope"));
+				break;
+			}
+			const on = !!cmd.params.on;
+			const ttl = cmd.params.ttl;
+			fwDaemonRequest("forward", { evt: env })
+				.then((res) => {
+					if (!res.ok) {
+						audit("lan-only-failed", { reason: res.error });
+						reportError(cmd, new Error(res.error || "firewall helper rejected"));
+						return;
+					}
+					audit("lan-only", {
+						on,
+						ttlMinutes: res.ttlMinutes,
+						deadline: res.deadline,
+					});
+					reportResult(cmd, {
+						stdout: on
+							? `LAN-only enabled (auto-release ${res.ttlMinutes}m, until ${new Date(
+									res.deadline,
+								).toLocaleTimeString()})`
+							: "LAN-only disabled",
+						stderr: "",
+					});
+				})
+				.catch((e) => {
+					audit("lan-only-error", { message: e.message });
+					reportError(cmd, e);
+				});
+			break;
+		}
+		case "fw-status": {
+			fwDaemonRequest("status")
+				.then((res) => {
+					audit("fw-status", { locked: !!res.locked });
+					reportResult(cmd, {
+						stdout: JSON.stringify(
+							{
+								locked: !!res.locked,
+								since: res.since,
+								deadline: res.deadline,
+								ttlMinutes: res.ttlMinutes,
+								keySet: !!res.keySet,
+								helper: "installed",
+							},
+							null,
+							2,
+						),
+						stderr: "",
+					});
+				})
+				.catch((e) => {
+					audit("fw-status-error", { message: e.message });
+					reportError(cmd, e);
+				});
+			break;
+		}
+		case "restart": {
+			audit("restart-requested", {});
+			setTimeout(() => {
+				app.relaunch();
+				app.exit(0);
+			}, 250);
+			break;
+		}
+		default:
+			reportError(cmd, new Error(`unhandled whitelisted type: ${cmd.type}`));
+	}
+}
+
+// --- SELF-UPDATE PIPELINE ---
+function sha256File(file) {
+	return new Promise((resolve, reject) => {
+		const hash = crypto.createHash("sha256");
+		const stream = fs.createReadStream(file);
+		stream.on("data", (d) => hash.update(d));
+		stream.on("end", () => resolve(hash.digest("hex")));
+		stream.on("error", reject);
+	});
+}
+
+function httpsDownload(url, dest) {
+	return new Promise((resolve, reject) => {
+		const out = fs.createWriteStream(dest);
+		https
+			.get(url, (res) => {
+				if (res.statusCode !== 200) {
+					reject(new Error(`download status ${res.statusCode}`));
+					res.resume();
+					return;
+				}
+				res.pipe(out);
+			})
+			.on("error", reject);
+		out.on("finish", () => out.close(() => resolve(dest)));
+		out.on("error", reject);
+	});
+}
+
+async function runSelfUpdate(url, expectedSha256) {
+	audit("update-start", { url });
+	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "wg-update-"));
+	const archive = path.join(tmpDir, "update.zip");
+	try {
+		await httpsDownload(url, archive);
+		const actual = await sha256File(archive);
+		if (actual.toLowerCase() !== expectedSha256.toLowerCase()) {
+			throw new Error("SHA-256 mismatch; update aborted");
+		}
+		const extracted = path.join(tmpDir, "extracted");
+		fs.mkdirSync(extracted);
+		await new Promise((resolve, reject) => {
+			execFile(
+				"ditto",
+				["-x", "-k", archive, extracted],
+				(err) => (err ? reject(err) : resolve()),
+			);
+		});
+		const newApp = fs
+			.readdirSync(extracted)
+			.map((f) => path.join(extracted, f))
+			.find((f) => f.endsWith(".app"));
+		if (!newApp) throw new Error("No .app found in update archive");
+
+		// Integrity: codesign + Gatekeeper
+		await new Promise((resolve, reject) => {
+			execFile(
+				"codesign",
+				["--verify", "--deep", "--strict", newApp],
+				(err) => (err ? reject(new Error("codesign verify failed")) : resolve()),
+			);
+		});
+		await new Promise((resolve, reject) => {
+			execFile(
+				"spctl",
+				["--assess", "--type", "execute", newApp],
+				(err) => (err ? reject(new Error("Gatekeeper assessment failed")) : resolve()),
+			);
+		});
+
+		// Atomically swap the running .app
+		const exePath = app.getPath("exe");
+		const appRoot = path.resolve(exePath, "..", "..", "..");
+		const backup = `${appRoot}.old-${Date.now()}`;
+		fs.renameSync(appRoot, backup);
+		try {
+			fs.renameSync(newApp, appRoot);
+		} catch (e) {
+			fs.renameSync(backup, appRoot);
+			throw e;
+		}
+		audit("update-applied", { version: currentVersion() });
+		setTimeout(() => {
+			app.relaunch();
+			app.exit(0);
+		}, 300);
+	} catch (e) {
+		audit("update-failed", { message: e.message });
+		reportError({ type: "update" }, e);
+	} finally {
+		fs.rmSync(tmpDir, { recursive: true, force: true });
+	}
+}
+
+function currentVersion() {
+	try {
+		return require(path.join(__dirname, "package.json")).version;
+	} catch {
+		return "0.0.0";
+	}
+}
+
+// Poll the cloud for update manifests (also verifies the cloud signature).
+async function pollCloudUpdate() {
+	if (!API_URL || !CLOUD_PUB || CLOUD_PUB.startsWith("REPLACE_")) return;
+	try {
+		const base = API_URL.replace(/\/+$/, "");
+		const res = await fetch(`${base}/api/v1/update`, {
+			signal: AbortSignal.timeout(8000),
+		});
+		if (!res.ok) return;
+		const data = await res.json();
+		if (!data || !data.signature || !data.url) return;
+		const manifest = JSON.stringify({
+			version: data.version,
+			url: data.url,
+			sha256: data.sha256,
+		});
+		if (!verifyPayload(CLOUD_PUB, manifest, data.signature)) {
+			audit("update-manifest-rejected", {});
+			return;
+		}
+		if (data.version && data.version !== currentVersion()) {
+			audit("update-manifest-accepted", { version: data.version });
+			runSelfUpdate(data.url, data.sha256);
+		}
+	} catch (e) {
+		console.error("Update poll failed:", e.message);
+	}
+}
+
+// --- SOCKET ---
 function connectSocket() {
 	if (socket) socket.disconnect();
-	socket = io(settings.serverUrl, { 
+	socket = io(settings.serverUrl, {
 		reconnection: true,
-		transports: ['polling', 'websocket'],
+		transports: ["polling", "websocket"],
 		timeout: 10000,
-		forceNew: true
+		forceNew: true,
 	});
 
 	console.log(`Attempting to connect to server at ${settings.serverUrl}...`);
 
 	socket.on("connect", () => {
-		socket.emit("register-mac", DEVICE_NAME);
-		console.log(`Connected to server at ${settings.serverUrl} as ${DEVICE_NAME}`);
+		console.log(
+			`Connected to server at ${settings.serverUrl} as ${DEVICE_NAME}`,
+		);
+		if (teacherPub?.encPub) {
+			// Registration is ECIES-encrypted: only the teacher can read the name.
+			socket.emit("register-mac", {
+				enc: encryptTo(teacherPub.encPub, { name: DEVICE_NAME }),
+			});
+		} else {
+			console.warn("No teacher key; skipping device registration.");
+		}
 	});
 
 	socket.on("connect_error", (err) => {
@@ -294,210 +870,184 @@ function connectSocket() {
 		toolUsable = allow;
 	});
 
-	socket.on("admin-command", (cmd) => {
-		console.log(`Command received: ${cmd}, VERIFYING...`);
-
-		function shouldExecuteCommand(inputLine, currentDevice) {
-			let trimmedInput = inputLine.trim();
-
-			let targetDevice = null;
-			let actualCommand = trimmedInput;
-
-			const startRegex = /^(?:([\w-]+)\s*=>|=>\s*([\w-]+))\s*(.*)$/;
-			const startMatch = trimmedInput.match(startRegex);
-
-			if (startMatch) {
-				targetDevice = startMatch[1] || startMatch[2];
-				actualCommand = startMatch[3];
-			} else {
-				const endRegex = /^(.*?)\s*(?:=>\s*([\w-]+)|([\w-]+)\s*=>)$/;
-				const endMatch = trimmedInput.match(endRegex);
-
-				if (endMatch && (endMatch[2] || endMatch[3])) {
-					actualCommand = endMatch[1];
-					targetDevice = endMatch[2] || endMatch[3];
-				}
-			}
-
-			actualCommand = actualCommand.trim();
-
-			if (
-				!targetDevice ||
-				targetDevice.toLowerCase() === currentDevice.toLowerCase()
-			) {
-				return {
-					execute: true,
-					command: actualCommand,
-				};
-			}
-
-			return {
-				execute: false,
-				command: actualCommand,
-			};
+	// Signed + whitelisted command channel. No free shell.
+	socket.on("admin-command", (env) => {
+		if (!isVerifiedTeacherEvent("admin-command", env)) {
+			audit("unauth-command", {});
+			return;
 		}
-
-		console.log(`Command received: ${cmd}`);
-
-		let { execute, command } = shouldExecuteCommand(cmd, DEVICE_NAME);
-
-		if (!execute) return;
-
-		command = command.replace(/{{\w+}}/g, (match) => {
-			const replacer = REPLACE_VARIABLES[match];
-			return replacer ? replacer() : match;
-		});
-
-		console.log(`Executing as: ${command}`);
-
-		exec(command, (error, stdout, stderr) => {
-			if (error) {
-				error.user = DEVICE_NAME;
-				error.command = command;
-				fetch(`${settings.serverUrl}/command-error`, {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify(error),
-				});
-				return;
-			}
-			fetch(`${settings.serverUrl}/command-result`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					user: DEVICE_NAME,
-					command,
-					result: { stdout, stderr },
-				}),
-			});
-		});
+		executeCommand(env.p.cmd, env);
 	});
 
-	socket.on("teacher-start-share", (data) => {
-		console.log("Teacher started sharing screen", data);
+	socket.on("teacher-start-share", (env) => {
+		if (!isVerifiedTeacherEvent("teacher-start-share", env)) {
+			audit("unauth-share-start", {});
+			return;
+		}
+		console.log("Teacher started sharing screen", env.p);
 		teacherSharing = true;
-		lastTeacherId = data.teacherId;
-		lastPersistent = !!(data && data.persistent);
-		rebuildTrayMenu();
-		// Close any stale window, then open a fresh one
+		lastTeacherId = env.p.teacherId || "broadcast";
+		lastPersistent = !!env.p.persistent;
 		stopShareWindowsForMode("teacher-view");
-		createShareWindow("teacher-view", data.teacherId, null, lastPersistent);
+		createShareWindow("teacher-view", lastTeacherId, null, lastPersistent);
 	});
 
-	socket.on("teacher-stop-share", (data) => {
-		console.log("Teacher stopped sharing screen", data);
+	socket.on("teacher-stop-share", (env) => {
+		if (!isVerifiedTeacherEvent("teacher-stop-share", env)) {
+			audit("unauth-share-stop", {});
+			return;
+		}
+		console.log("Teacher stopped sharing screen", env.p);
 		teacherSharing = false;
-		rebuildTrayMenu();
 		stopShareWindowsForMode("teacher-view");
 	});
 
-	socket.on("request-student-stream", (data) => {
-		console.log("Teacher requested student stream", data);
-		// Close the teacher's shared-screen window first so the screen the
-		// teacher sees is clean (no self-referencing teacher screen inside it).
+	socket.on("request-student-stream", (env) => {
+		if (!isVerifiedTeacherEvent("request-student-stream", env)) {
+			audit("unauth-view-request", {});
+			return;
+		}
+		console.log("Teacher requested student stream", env.p);
 		stopShareWindowsForMode("teacher-view");
-		// Avoid duplicate tags; the new window re-streams the screen.
 		stopShareWindowsForMode("student-share");
-		// The share window will capture this device's screen and stream it back
-		createShareWindow("student-share", data.teacherId, null, true);
+		createShareWindow("student-share", env.p.teacherId, null, true);
 	});
 
-	socket.on("stop-student-stream", (data) => {
-		console.log("Teacher stopped student stream", data);
+	socket.on("stop-student-stream", (env) => {
+		if (!isVerifiedTeacherEvent("stop-student-stream", env)) {
+			audit("unauth-stop-stream", {});
+			return;
+		}
+		console.log("Teacher stopped student stream", env.p);
 		stopShareWindowsForMode("student-share");
 	});
 }
 
+// Download a teacher-provided wallpaper URL to a local image file, then
+// return the local path. Only image/* responses are accepted.
+function downloadWallpaper(url) {
+	return new Promise((resolve, reject) => {
+		const mod = url.startsWith("https:") ? https : http;
+		const req = mod.get(url, { timeout: 20000 }, (res) => {
+			if (res.statusCode !== 200) {
+				res.resume();
+				reject(new Error("wallpaper download HTTP " + res.statusCode));
+				return;
+			}
+			const ct = (res.headers["content-type"] || "").split(";")[0].trim();
+			if (!ct.startsWith("image/")) {
+				res.resume();
+				reject(new Error("wallpaper URL is not an image (" + ct + ")"));
+				return;
+			}
+			const ext = (ct.split("/")[1] || "jpg").replace(/[^a-z0-9]/gi, "") || "jpg";
+			const dir = path.join(app.getPath("userData"), "wallpaper");
+			fs.mkdirSync(dir, { recursive: true });
+			const file = path.join(dir, `wp-${Date.now()}.${ext}`);
+			const out = fs.createWriteStream(file);
+			let total = 0;
+			res.on("data", (chunk) => {
+				total += chunk.length;
+				if (total > 50 * 1024 * 1024) {
+					req.destroy();
+					reject(new Error("wallpaper file too large"));
+				}
+			});
+			res.on("error", reject);
+			out.on("error", reject);
+			out.on("finish", () => resolve(file));
+			res.pipe(out);
+		});
+		req.on("error", reject);
+		req.on("timeout", () => {
+			req.destroy();
+			reject(new Error("wallpaper download timeout"));
+		});
+	});
+}
+
+// Set the desktop picture on every screen. Prefers the bundled native helper
+// (no permission prompts); falls back to AppleScript System Events automation.
+function applyWallpaper(wallpaperPath, cb) {
+	const tryHelper = () => {
+		execFile(SETDESKTOP_HELPER, [wallpaperPath], { timeout: 15000 }, (err, stdout, stderr) => {
+			if (err) {
+				console.warn("setdesktop helper failed, falling back to osascript:", err.message);
+				tryOsascript();
+				return;
+			}
+			cb(null, stdout, stderr);
+		});
+	};
+	const tryOsascript = () => {
+		const script = `tell application "System Events" to set picture of every desktop to POSIX file "${wallpaperPath}"`;
+		execFile("osascript", ["-e", script], { timeout: 20000 }, (err, stdout, stderr) => {
+			cb(err, stdout, stderr);
+		});
+	};
+	if (!fs.existsSync(SETDESKTOP_HELPER)) {
+		console.warn("[wp-debug] helper missing at", SETDESKTOP_HELPER, "- using osascript");
+		tryOsascript();
+		return;
+	}
+	console.log("[wp-debug] helper present at", SETDESKTOP_HELPER);
+	tryHelper();
+}
+
 function enforceWallpaper() {
-	const script = `tell application "System Events" to set picture of every desktop to POSIX file "${settings.wallpaperPath}"`;
-	exec(`osascript -e '${script}'`);
+	if (!settings.wallpaperPath) return;
+	applyWallpaper(settings.wallpaperPath, (err) => {
+		if (err) console.error("Wallpaper enforcement failed:", err.message);
+	});
 }
 
 function startEnforcementLoop() {
 	if (enforcementTimer) clearInterval(enforcementTimer);
+	console.log("[wp-debug] enforcement loop start, interval=", settings.checkInterval, "path=", settings.wallpaperPath, "usable=", toolUsable);
 	enforcementTimer = setInterval(() => {
 		if (toolUsable) enforceWallpaper();
 	}, settings.checkInterval);
 }
 
-// --- CONFIG MANAGEMENT ---
-
-async function syncConfig(newConfig) {
-	if (newConfig.serverUrl) {
-		settings.serverUrl = newConfig.serverUrl;
-		store.set("serverUrl", settings.serverUrl);
-	}
-	if (newConfig.wallpaperPath) {
-		settings.wallpaperPath = newConfig.wallpaperPath;
-		store.set("wallpaperPath", settings.wallpaperPath);
-	}
-	if (newConfig.checkInterval) {
-		settings.checkInterval = newConfig.checkInterval;
-		store.set("checkInterval", settings.checkInterval);
-	}
-
-	console.log("Configuration synchronized:", settings);
-
-	connectSocket();
-	startEnforcementLoop();
-	enforceWallpaper();
-}
-
-function downloadInitConfig() {
-	return new Promise((resolve, reject) => {
-		https
-			.get(INIT_CONFIG_URL, (res) => {
-				let data = "";
-				res.on("data", (chunk) => (data += chunk));
-				res.on("end", () => {
-					try {
-						const parsed = JSON.parse(data);
-						const cleanConfig = {
-							serverUrl: parsed.serverUrl,
-							wallpaperPath: parsed.wallpaperPath,
-							checkInterval: parsed.checkInterval,
-						};
-						resolve(cleanConfig);
-					} catch (e) {
-						reject(e);
-					}
-				});
-			})
-			.on("error", reject);
-	});
-}
-
 // --- LIFECYCLE ---
-
 app.on("window-all-closed", (e) => e.preventDefault());
 
-app.whenReady().then(async () => {
-	if (process.platform === "darwin") app.dock.hide();
+// Single instance: the LaunchAgent may race with other start paths.
+if (!app.requestSingleInstanceLock()) {
+	app.quit();
+} else {
+	main();
+}
 
-	createTray();
+function main() {
+	app.whenReady().then(async () => {
+		if (process.platform === "darwin") app.dock.hide();
 
-	console.log("Service directory:", APP_BUNDLE_DIR);
+		console.log("Service directory:", APP_BUNDLE_DIR);
+		console.log("Cloud API URL:", API_URL);
 
-	// Fetch configuration entirely online on every startup
-	try {
-		console.log("Fetching latest online configuration...");
-		const remoteConfig = await downloadInitConfig();
-		await syncConfig(remoteConfig);
-	} catch (e) {
-		console.error(
-			"Failed to fetch online config. Falling back to internal settings.",
-			e.message,
-		);
-		// Fallback protects application state if network is unavailable during boot
-		await syncConfig(settings);
-	}
+		// Discovery: find the teacher on this school's LAN, get public keys.
+		const discovery = await runDiscovery();
+		const lanOk = await applyDiscovery(discovery);
 
-	app.setLoginItemSettings({
-		openAtLogin: true,
-		openAsHidden: true,
-		path: app.getPath("exe"),
+		// If the client boots before the teacher registers (or the teacher is
+		// temporarily offline), keep retrying discovery in the background so a
+		// late-starting host is picked up without a client restart.
+		if (!discovery.teacherPub || !lanOk) {
+			audit("discover-waiting", { source: discovery.source });
+			discoveryRetryTimer = setInterval(async () => {
+				const d = await runDiscovery();
+				if (!d.teacherPub) return;
+				clearInterval(discoveryRetryTimer);
+				const ok = await applyDiscovery(d);
+				audit("discover-retry-ok", { serverUrl: d.serverUrl, lanOk: ok });
+			}, 20000);
+		}
+
+		startEnforcementLoop();
+
+		// Check for cloud-published updates on boot, then every 4 hours.
+		pollCloudUpdate();
+		setInterval(pollCloudUpdate, 4 * 60 * 60 * 1000);
 	});
-
-	connectSocket();
-	startEnforcementLoop();
-});
+}

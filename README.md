@@ -1,7 +1,8 @@
-# Wallpaper Guard 🖼️🛡️
+# InHand 🖼️🛡️
 
-A centralized management system for macOS desktop wallpapers, with built-in
-classroom screen sharing. It consists of two apps:
+InHand is a classroom management system for macOS: wallpapers, screen sharing,
+and lockdown-style commands, all controlled by the teacher from one dashboard.
+It consists of two apps:
 
 - **Host (Admin)** — the teacher's control center: enforces wallpapers on every
   connected device, broadcasts the teacher's screen to all students, and lets
@@ -17,19 +18,53 @@ classroom screen sharing. It consists of two apps:
 
 ### For Students (Client)
 
-1. Download from the [download page](https://wallpg.web.app/), or run the
+1. Download from the [download page](https://ihinstall.web.app/), or run the
    installer script: `website/install.sh` (Apple Silicon only).
-2. The installer registers the service, writes `WP_CONFIG_URL` to `~/.zshrc`,
-   and walks the user through granting the required macOS permissions,
-   including **Screen Recording** (needed for screen sharing).
+2. The installer registers a per-user LaunchAgent, writes `WP_API_URL` to the
+   shell profile (set it with `-a/--api-url`), and walks the user through
+   granting the required macOS permissions, including **Screen Recording**
+   (needed so the teacher can view this screen).
    This installer is for the **student client only** — teachers should not run
    it on their machine.
 
 ### For Teachers (Host / Admin)
 
-Download the latest `Wallpaper.Guard.Admin-...-arm64.dmg` from the
-[GitHub Releases](https://github.com/ChuTM/wallpaper-guard/releases) page and
+Download the latest `InHand.Admin-...-arm64.dmg` from the
+[GitHub Releases](https://github.com/ChuTM/inhand/releases) page and
 install it like a regular macOS app.
+
+## Security Architecture
+
+- **Teacher keys** — on first launch the Host generates an **Ed25519** signing
+  key pair and an **X25519** encryption key pair. Private keys are encrypted
+  with a password (scrypt + AES-256-GCM) and stored at `0600` in the Host's
+  user data. The teacher unlocks with the password on every launch and can
+  regenerate keys or change the password from the dashboard.
+- **Cloud discovery (one school, one teacher)** — the teacher registers the
+  school's **public IP** with the officially hosted server (`/api/v1/admin/register`),
+  providing the LAN IP and public keys. Students call `/api/v1/discover` from
+  the same public IP, verify the **cloud's signature** on the response, and
+  learn the teacher's LAN address and public keys — no PIN, no per-student
+  setup.
+- **Signed commands** — every privileged teacher event (share, view, commands)
+  is **Ed25519-signed** and replay-protected (nonce + 120 s window). The client
+  verifies before acting; unsigned events are rejected and audited.
+- **Encrypted uplink** — everything a student sends (registration, command
+  results, WebRTC offers/ICE) is **ECIES-encrypted** (X25519 + HKDF +
+  AES-256-GCM) to the teacher's public key, so only the teacher can read it.
+- **Command whitelist** — teachers can only send commands defined in
+  `shared/commands.json` (add/remove commands by editing that file and
+  releasing an update). No free shell on clients.
+- **LAN gate** — commands, always-on-top and screen viewing are only honored
+  on private addresses (`10/8`, `172.16/12`, `192.168/16`, `100.64/10`).
+- **Self-update** — the client verifies HTTPS downloads by SHA-256, `codesign`
+  and Gatekeeper before atomically replacing itself. The cloud can also publish
+  update manifests at `/api/v1/update` (cloud-signed).
+- **No root** — the student client runs from `~/Library/Application Support/
+  InHand/` under a per-user LaunchAgent. No sudo, no root daemon, no
+  world-writable directories.
+- **Audit logs** — both sides append a JSONL audit log (key events: setup,
+  unlock, key rotation, commands, rejected/unauthenticated events).
 
 ## Features
 
@@ -48,6 +83,80 @@ install it like a regular macOS app.
   checked, student windows are locked (always on top, cannot be closed);
   otherwise students can close them and reopen them anytime from the client
   tray menu ("Reopen Teacher's Screen").
+- **LAN-only mode (external access cut)** — the teacher can cut every client's
+  internet access with one signed command; machines stay usable on the LAN.
+  Optional helper, see [LAN-only firewall](#lan-only-firewall-optional).
+
+## LAN-only firewall (optional)
+
+The teacher can switch a client (or all clients) into **LAN-only mode**: all
+outbound traffic to the internet is blocked by the macOS packet filter (pf),
+while LAN traffic keeps working — the client stays reachable, the screen-share
+and command channels keep functioning, but web/cloud access is cut.
+
+```
+1. Install the helper once per student machine (single admin prompt):
+     curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -f
+2. In the teacher's admin panel (Commands) send:
+     lan-only  { on: true,  ttl: 60 }   → lock (auto-release in 60 min)
+     lan-only  { on: false }            → release
+     fw-status {}                       → query each client's lock state
+```
+
+**How it works**
+
+- `install.sh -f` installs ONE tiny root daemon (`com.inhand.fw`,
+  `client/helper/daemon.mjs`) plus a `inhand-fwctl` CLI. Everything else in the
+  project stays rootless — this is the single privileged component.
+- The daemon applies / removes a **named pf anchor** (`com.inhand`);
+  it never edits `/etc/pf.conf`.
+- Rules: block all outbound → pass private ranges (10/8, 172.16/12,
+  192.168/16, 100.64/10), loopback, link-local, multicast, DHCP, and DNS (53).
+- The teacher's key syncs to the daemon automatically on first discovery
+  (first-set wins). **Unlock requires the teacher's Ed25519 signature** — the
+  client re-forwards the original signed command, and the daemon re-verifies
+  it against its own copy of the key. Students cannot unlock.
+- Defaults (changeable per command via `ttl`): auto-release after 60 minutes;
+  the lock survives app quit and reboot (re-applied by launchd on boot, and
+  auto-expires when the TTL elapses).
+
+**Manual force-close / emergency** (run on the student machine, as admin):
+
+```bash
+sudo /Library/Application Support/InHand/inhand-fwctl unlock
+```
+
+Or, bypassing everything in one shot:
+
+```bash
+sudo /sbin/pfctl -a com.inhand -F all
+sudo rm -f "/Library/Application Support/InHand/fw-state.json"
+```
+
+Other `inhand-fwctl` commands:
+
+```bash
+sudo inhand-fwctl status                     # lock state + teacher key status
+sudo inhand-fwctl lock --ttl=60              # manually apply LAN-only mode
+sudo inhand-fwctl setkey <base64_pub>        # update the teacher key (after rotation)
+sudo inhand-fwctl uninstall                  # flush rules, unload daemon, remove files
+```
+
+**Operational notes & caveats**
+
+- The daemon rejects stale timestamps, replayed nonces, and any event not
+  signed by the configured teacher key; all ops are logged to
+  `/Library/Application Support/InHand/fw.log`.
+- After the teacher rotates keys, run `sudo inhand-fwctl setkey <pub>` on each
+  student machine once (the client shows the new key in discovery).
+- This is a classroom **policy control, not a security boundary**: a student
+  with admin rights can unload the daemon or boot another OS. Physical control
+  is the real boundary here.
+- Allowing DNS (port 53) keeps name resolution working but is a potential
+  DNS-tunnel channel; remove the `to port 53` line in `fw.rules` if that
+  matters in your environment.
+- The helper is served from `website/firewall/` — keep it in sync with
+  `client/helper/` when releasing updates.
 
 ## Project Structure
 
@@ -57,6 +166,9 @@ install it like a regular macOS app.
 /client    Student Electron app — background service with a tray icon, wallpaper
            enforcement, and screen-sharing windows.
 /website   Landing/download page plus install.sh (student client installer).
+/tools     Cloud server (registration + discover + update signing). Runs
+           locally (`tools/server/server.mjs`) or serverless on Vercel with
+           Firebase Firestore (`api/` functions). See tools/server/README.md.
 ```
 
 ## Technical Architecture
@@ -100,23 +212,32 @@ npm install
 npm start
 ```
 
-Click the tray icon → **Set Server Address** and enter the Host URL
-(e.g. `http://192.168.1.50:7100`). The client can also fetch its server
-configuration from `https://wallpg.web.app/init_config.json`, overridable with
-the `WP_CONFIG_URL` environment variable.
+On first start the client performs **cloud discovery**: it calls
+`/api/v1/discover` on the API server (env `WP_API_URL`, default
+`https://inhand-server.vercel.app`), verifies the cloud signature, and learns the
+teacher's LAN address and public keys automatically — no manual server address
+entry. If the cloud is unreachable, a previously cached (unexpired) discovery
+is reused; otherwise the client falls back to `serverUrl` in `client/config.json`.
 
 ## Configuration
 
 ### Wallpaper
 The default enforced wallpaper is
 `/System/Library/CoreServices/DefaultDesktop.heic`. Change `wallpaperPath` in
-`client/config.json` (or the `DEFAULT_PATH` constant in `client/main.js`).
+`client/config.json`.
 
-### Server address
+### Cloud API / server address
+Priority order: `WP_API_URL` env var → `client/config.json` `apiUrl` →
+default. The same env var is set by `website/install.sh` (`-a/--api-url`).
 `client/config.json`:
 ```json
-{ "serverUrl": "http://localhost:7100" }
+{ "apiUrl": "https://inhand-server.vercel.app", "serverUrl": "http://localhost:7100" }
 ```
+
+### Command whitelist
+`shared/commands.json` (and its bundled copy `client/commands.json`) defines
+every command the teacher may send. To add/remove commands, edit that file and
+ship an update.
 
 ### Build Executables
 
@@ -129,8 +250,11 @@ npm run dist
 
 ## Security Notes
 
-- The admin dashboard is restricted to the machine running the Host.
-- Remote clients communicate only over the Socket.io port (7100).
-- Renderers use `contextIsolation` with `nodeIntegration` disabled.
+- The admin dashboard and `/api` are restricted to the machine running the Host
+  (plus a CSRF token for state-changing requests).
+- All privileged teacher→client events are Ed25519-signed and replay-protected.
+- All client→teacher payloads are ECIES-encrypted to the teacher's public key.
+- Clients only honor commands/screen sharing on private LAN addresses.
+- Renderers use `contextIsolation` + `sandbox`, with `nodeIntegration` disabled.
 - Screen sharing requires the user to grant **Screen Recording** permission in
   System Settings → Privacy & Security.

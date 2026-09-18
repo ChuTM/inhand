@@ -6,4 +6,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
 	onStopShare: (callback) =>
 		ipcRenderer.on("stop-share", () => callback()),
 	closeShareWindow: () => ipcRenderer.send("CLOSE_SHARE_WINDOW"),
+	// All crypto runs in the main process; the renderer never sees keys.
+	encryptForTeacher: (obj) => ipcRenderer.invoke("ENCRYPT_FOR_TEACHER", obj),
+	verifyTeacherEvent: (type, env) =>
+		ipcRenderer.invoke("VERIFY_TEACHER_EVENT", { type, env }),
 });

@@ -1,0 +1,124 @@
+/*
+ * InHand — login view (eSchool design language, HIG light).
+ * Sits on top of base.css.
+ */
+#login-view { display: block; min-height: 100vh; position: relative; }
+
+.login-stage {
+  display: grid;
+  grid-template-columns: minmax(340px, 42%) 1fr;
+  min-height: 100vh;
+}
+
+/* five stacked brand color blocks (left pane) */
+.color-blocks { display: flex; flex-direction: column; }
+.color-blocks .block { flex: 1; }
+.block-1 { background: #F4A0A0; }
+.block-2 { background: #F1A28A; }
+.block-3 { background: #EE9576; }
+.block-4 { background: #EB7D64; }
+.block-5 { background: #E43D30; }
+
+.login-side {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 48px 32px 96px;
+}
+
+.login-side .brand { display: flex; align-items: center; gap: 14px; margin-bottom: 34px; }
+.brand-mark {
+  width: 46px;
+  height: 46px;
+  border-radius: 13px;
+  corner-shape: squircle;
+  flex-shrink: 0;
+  background: linear-gradient(135deg, #ee9576, #e43d30);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.brand-mark-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  corner-shape: squircle;
+}
+.login-side .brand-name { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; margin: 0; }
+.login-side .brand-sub { font-size: 12px; color: var(--fg-2); margin: 2px 0 0; font-weight: 500; }
+
+.title-block { margin-bottom: 30px; }
+.title-block h2 { font-size: 32px; font-weight: 800; letter-spacing: -0.025em; margin: 0 0 6px; }
+.title-block p { font-size: 14px; color: var(--fg-2); margin: 0; }
+
+.providers { display: grid; gap: 14px; }
+.glass-btn {
+  width: 100%;
+  padding: 15px 18px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg);
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.06s ease;
+}
+.glass-btn:hover { background: rgba(255, 255, 255, 0.7); }
+.glass-btn:active { transform: scale(0.985); }
+.glass-btn:focus-visible { outline: 3px solid rgba(228, 61, 48, 0.3); outline-offset: 2px; }
+.glass-btn:disabled { opacity: 0.55; cursor: default; }
+.glass-btn .zi { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; gap: 10px; }
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--fg-2);
+  font-size: 12px;
+  font-weight: 600;
+  margin: 26px 0 4px;
+}
+.divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: rgba(0, 0, 0, 0.08); }
+
+details.owner { margin-top: 20px; }
+details.owner summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-2);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+  transition: color 0.15s ease;
+}
+details.owner summary::-webkit-details-marker { display: none; }
+details.owner summary::after { content: "›"; margin-left: auto; font-size: 16px; line-height: 1; transition: transform 0.15s ease; }
+details.owner[open] summary::after { transform: rotate(90deg); }
+details.owner summary:hover { color: var(--fg); }
+details.owner .muted { margin-top: 12px; }
+details.owner label { margin-top: 14px; }
+details.owner .row { margin-top: 8px; }
+
+.disabled-note { margin-top: 22px; font-size: 12px; color: var(--fg-3); }
+
+.login-foot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 20px;
+  text-align: center;
+  font-size: 10px;
+  color: var(--fg-4);
+  letter-spacing: 0.03em;
+}
+
+@media (max-width: 860px) {
+  .login-stage { grid-template-columns: 1fr; grid-template-rows: 32vh 1fr; }
+  .color-blocks { flex-direction: row; }
+  .login-side { padding: 36px 22px 80px; justify-content: flex-start; }
+  .title-block h2 { font-size: 27px; }
+}

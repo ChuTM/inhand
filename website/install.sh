@@ -1,25 +1,48 @@
 #!/bin/zsh
 
 # =============================================================================
-#  Wallpaper Guard — STUDENT CLIENT installer (macOS, Apple Silicon)
+#  InHand — STUDENT CLIENT installer (macOS)
 #
-#  IMPORTANT: This installer is for the STUDENT CLIENT ONLY.
-#             Teachers (host side) should NOT run this script on their machine.
+#  IMPORTANT: install.sh is for the STUDENT CLIENT ONLY.
+#             Do NOT run this script on the teacher's (host) machine.
+#
+#  Security notes:
+#    - Installs into ~/Library/Application Support/InHand (no sudo,
+#      no world-writable directory).
+#    - Auto-start uses a per-user LaunchAgent (no root privileges needed).
+#    - Optional LAN-only firewall helper (flag -f): installs ONE tiny root
+#      daemon + pf anchor via a single sudo prompt. See README.
+#    - The Screen Recording permission is required so the teacher can view
+#      this screen; the installer walks you through granting it.
 # =============================================================================
 
 # --- Defaults ---
-CONFIG_URL="https://wallpg.web.app/init_config.json"
+API_URL="https://inhand-server.vercel.app"
 MODE="install"
 URL_SPECIFIED=false
 IS_UPDATE=false
+FIREWALL=false
+
+INSTALL_DIR="$HOME/Library/Application Support/InHand"
+APP_NAME="InHand Student.app"
+APP_PATH="$INSTALL_DIR/$APP_NAME"
+APP_EXECUTABLE="$APP_PATH/Contents/MacOS/InHand Student"
+AGENT_LABEL="com.inhand.student"
+AGENT_PLIST="$HOME/Library/LaunchAgents/$AGENT_LABEL.plist"
+DMG_URL="https://github.com/ChuTM/inhand/releases/latest/download/InHand-arm64.dmg"
+FW_HELPER_BASE="https://ihinstall.web.app/firewall"
 
 # --- Parse Flags ---
 while [[ $# -gt 0 ]]; do
   case $1 in
-    -c|--config)
-      CONFIG_URL="$2"
+    -a|--api-url)
+      API_URL="$2"
       URL_SPECIFIED=true
       shift 2
+      ;;
+    -f|--firewall)
+      FIREWALL=true
+      shift
       ;;
     -u|--uninstall)
       MODE="uninstall"
@@ -31,7 +54,11 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "[ERROR] Unknown option: $1"
-      echo "Usage: bash install.sh [-c https://config.json] [-u] [-v]"
+      echo "Usage: bash install.sh [-a https://your-api-server] [-f] [-u] [-v]"
+      echo "       -a/--api-url : set the cloud API base URL (default https://inhand-server.vercel.app)"
+      echo "       -f           : also install the LAN-only firewall helper (asks for admin once)"
+      echo "       -u           : uninstall the student client"
+      echo "       -v           : update the student client"
       exit 1
       ;;
   esac
@@ -46,132 +73,36 @@ if [ "$MODE" = "install" ] || [ "$MODE" = "update" ]; then
   fi
 fi
 
-# --- Helper Functions for Reuse ---
-kill_and_clean_app() {
-  echo "[INFO] Stopping and removing current Wallpaper Guard service..."
-  sudo lsof +D "/Library/Application Support/.sys_service" | awk 'NR>1 {print $2}' | xargs -r sudo kill -9 2>/dev/null
-  sudo pkill -9 -f "System Wallpaper Service" 2>/dev/null
-  sudo chflags -R noschg,nouchg "/Library/Application Support/.sys_service" 2>/dev/null
-  sudo rm -rf "/Library/Application Support/.sys_service"
-  
-  sudo launchctl unload -w /Library/LaunchDaemons/com.system.wallpaper.service.plist 2>/dev/null
-  sudo rm -f /Library/LaunchDaemons/com.system.wallpaper.service.plist
+# --- Helper Functions ---
+kill_app() {
+  pkill -9 -f "InHand Student" 2>/dev/null
 }
 
-# --- UPDATE MODE INTERNAL ROUTING ---
-if [ "$MODE" = "update" ]; then
-  echo "[INFO] Starting application update sequence..."
-  IS_UPDATE=true
-  
-  # Step 1: Detect existing config configuration to maintain persistent settings
-  if [ "$URL_SPECIFIED" = false ]; then
-    if [ -f ~/.zshrc ]; then
-      # Extract the exact string inside the quotes if WP_CONFIG_URL exists
-      EXISTING_URL=$(grep -E '^export WP_CONFIG_URL=' ~/.zshrc | tail -n 1 | sed -E 's/.*="([^"]*)".*/\1/')
-      if [ -n "$EXISTING_URL" ]; then
-        CONFIG_URL="$EXISTING_URL"
-        echo "[INFO] Found existing configuration in ~/.zshrc. Preserving: $CONFIG_URL"
-      fi
-    fi
-  fi
+unload_agent() {
+  launchctl bootout "gui/$(id -u)/$AGENT_LABEL" 2>/dev/null
+  launchctl unload -w "$AGENT_PLIST" 2>/dev/null
+  rm -f "$AGENT_PLIST"
+}
 
-  # Step 2: Clear old running application artifacts to unlock systemic binary locks
-  kill_and_clean_app
-  
-  # Step 3: Shift engine runtime straight over into the main install pipeline
-  MODE="install"
-fi
+kill_and_clean_app() {
+  echo "[INFO] Stopping and removing the current InHand student client..."
+  kill_app
+  unload_agent
+  rm -rf "$INSTALL_DIR"
+}
 
-# --- INSTALL MODE ---
-if [ "$MODE" = "install" ]; then
-  echo "[INFO] Downloading Wallpaper Guard..."
-  curl -fsSL -O https://github.com/ChuTM/wallpaper-guard/releases/latest/download/Wallpaper.Guard-arm64.dmg || {
-    echo "[ERROR] Download failed."
-    exit 1
-  }
-  hdiutil attach Wallpaper.Guard-arm64.dmg
-
-  # Handle configuration writing inline dynamically to protect file system profile integrity
-  if [ -f ~/.zshrc ] && grep -q "WP_CONFIG_URL" ~/.zshrc; then
-    if [ "$URL_SPECIFIED" = true ]; then
-      echo "[INFO] Updating existing WP_CONFIG_URL inside ~/.zshrc to $CONFIG_URL"
-      # Swaps out old configuration lines without generating messy multiple duplicate lines
-      sed -i '' "s|export WP_CONFIG_URL=.*|export WP_CONFIG_URL=\"$CONFIG_URL\"|g" ~/.zshrc
-    else
-      echo "[INFO] WP_CONFIG_URL is already defined in ~/.zshrc. Skipping profile write to retain setup."
-    fi
-  else
-    echo "[INFO] Setting WP_CONFIG_URL to $CONFIG_URL"
-    echo "export WP_CONFIG_URL=\"$CONFIG_URL\"" >> ~/.zshrc
-  fi
-  source ~/.zshrc
-
-  echo "[INFO] Copying service files..."
-  sudo mkdir -p "/Library/Application Support/.sys_service" &&
-  sudo cp -R /Volumes/System*/System*.app "/Library/Application Support/.sys_service/System Wallpaper Service.app" &&
-  sudo xattr -rd com.apple.quarantine "/Library/Application Support/.sys_service/System Wallpaper Service.app" &&
-  sudo chmod 777 "/Library/Application Support/.sys_service"
-
-  # Fire up the application bundle
-  open "/Library/Application Support/.sys_service/System Wallpaper Service.app"
-
-  # --- DYNAMIC USER PERMISSION CHECK ---
-  if [ "$IS_UPDATE" = false ]; then
-    # Fresh Install Mode: Require manual human confirmation via terminal ENTER key
-    echo "[INFO] Please grant the following macOS permissions when prompted:"
-    echo "       1. Automation / System Events"
-    echo "       2. Screen Recording (required so the teacher can view this screen)"
-    echo ""
-    echo "[INFO] Opening System Settings -> Privacy & Security -> Screen Recording..."
-    open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
-    echo "       In the list, enable \"System Wallpaper Service\"."
-    echo "       (If it is not listed yet, make sure the app is running, then reopen this pane.)"
-    echo ""
-    echo "Press ENTER once all permissions are granted to continue..."
-
-    (
-      while true; do
-        for c in "|" "/" "-" "\\"; do
-          printf "\r[WAIT] Waiting for confirmation... %s" "$c"
-          sleep 0.2
-        done
-      done
-    ) &
-    SPINNER_PID=$!
-
-    read
-    kill "$SPINNER_PID" 2>/dev/null
-    wait "$SPINNER_PID" 2>/dev/null
-
-    # Screen Recording grants only take effect after the app restarts
-    echo "[INFO] Restarting the app so the Screen Recording permission applies..."
-    pkill -9 -f "System Wallpaper Service" 2>/dev/null
-    sleep 1
-    open "/Library/Application Support/.sys_service/System Wallpaper Service.app"
-
-    printf "\r[SUCCESS] Permissions confirmed. Continuing...\n"
-  else
-    # Update Mode: macOS has already cached permissions for this bundle ID, bypass pause entirely
-    echo "[INFO] Application update detected. Retaining cached macOS security permissions..."
-    echo "[INFO] Note: if Screen Recording was never granted on this Mac, enable it now in"
-    echo "       System Settings -> Privacy & Security -> Screen Recording, then restart the app."
-    sleep 1
-  fi
-
-  echo "[INFO] Cleaning up installer files..."
-  hdiutil detach /Volumes/System* && rm Wallpaper.Guard-arm64.dmg
-
-  echo "[INFO] Registering launch daemon..."
-  cat <<EOF > com.system.wallpaper.service.plist
+install_launch_agent() {
+  echo "[INFO] Registering per-user LaunchAgent (no root required)..."
+  cat > "$AGENT_PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.system.wallpaper.service</string>
+    <string>$AGENT_LABEL</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Library/Application Support/.sys_service/System Wallpaper Service.app/Contents/MacOS/System Wallpaper Service</string>
+        <string>$APP_EXECUTABLE</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -180,17 +111,174 @@ if [ "$MODE" = "install" ]; then
 </dict>
 </plist>
 EOF
+  chmod 644 "$AGENT_PLIST"
+  # Modern launchd API first, legacy fallback for older macOS
+  launchctl bootstrap "gui/$(id -u)" "$AGENT_PLIST" 2>/dev/null \
+    || launchctl load -w "$AGENT_PLIST"
+}
 
-  sudo mv com.system.wallpaper.service.plist /Library/LaunchDaemons/ &&
-  sudo chown root:wheel /Library/LaunchDaemons/com.system.wallpaper.service.plist &&
-  sudo chmod 644 /Library/LaunchDaemons/com.system.wallpaper.service.plist &&
-  sudo launchctl load -w /Library/LaunchDaemons/com.system.wallpaper.service.plist
+# --- LAN-ONLY FIREWALL HELPER (optional, one-time admin) ---
+# Downloads the helper from the website and installs it as a root LaunchDaemon
+# with a single sudo prompt. See README for usage + manual force-close.
+install_firewall_helper() {
+  local TMP_FW="$TMPDIR/inhand-fw-helper"
+  mkdir -p "$TMP_FW"
+  echo "[INFO] Downloading firewall helper from $FW_HELPER_BASE ..."
+  curl -fsSL -o "$TMP_FW/daemon.mjs" "$FW_HELPER_BASE/daemon.mjs" || { echo "[ERROR] Failed to download daemon.mjs"; return 1; }
+  curl -fsSL -o "$TMP_FW/inhand-fwctl" "$FW_HELPER_BASE/inhand-fwctl" || { echo "[ERROR] Failed to download inhand-fwctl"; return 1; }
+  curl -fsSL -o "$TMP_FW/com.inhand.fw.plist" "$FW_HELPER_BASE/com.inhand.fw.plist" || { echo "[ERROR] Failed to download plist"; return 1; }
 
-  echo "[SUCCESS] Service configuration completed. Wallpaper Guard STUDENT CLIENT is now active."
+  echo "[INFO] Installing firewall helper (asks for admin ONCE)..."
+  sudo -p "Password for admin (needed to install the LAN-only firewall helper): " \
+    /bin/zsh -c '
+      set -e
+      FW_DIR="/Library/Application Support/InHand"
+      mkdir -p "$FW_DIR" && chmod 755 "$FW_DIR"
+      cp "$1" "$FW_DIR/daemon.mjs" && chmod 600 "$FW_DIR/daemon.mjs"
+      cp "$2" "$FW_DIR/inhand-fwctl" && chmod 755 "$FW_DIR/inhand-fwctl"
+      sed "s|__APP_EXECUTABLE__|$3|g" "$4" > /Library/LaunchDaemons/com.inhand.fw.plist
+      chmod 644 /Library/LaunchDaemons/com.inhand.fw.plist
+      /bin/launchctl bootout system/com.inhand.fw 2>/dev/null || true
+      /bin/launchctl bootstrap system /Library/LaunchDaemons/com.inhand.fw.plist
+      echo "[OK] Firewall helper installed (root daemon com.inhand.fw)."
+    ' _ "$TMP_FW/daemon.mjs" "$TMP_FW/inhand-fwctl" "$APP_EXECUTABLE" "$TMP_FW/com.inhand.fw.plist"
+
+  rm -rf "$TMP_FW"
+  echo "[INFO] LAN-only mode is now available from the teacher's admin panel"
+  echo "      (command: lan-only). Teacher key syncs automatically on discovery."
+  echo "      Manual force-close: sudo inhand-fwctl unlock  (see README)."
+}
+
+uninstall_firewall_helper() {
+  local WGFW="/Library/Application Support/InHand/inhand-fwctl"
+  if [ -x "$WGFW" ]; then
+    echo "[INFO] Removing LAN-only firewall helper (asks for admin ONCE)..."
+    sudo "$WGFW" uninstall
+  fi
+}
+
+# --- Persist the cloud API URL ---
+write_api_url() {
+  local PROFILE="$HOME/.zshrc"
+  [ -f "$PROFILE" ] || PROFILE="$HOME/.bash_profile"
+  if grep -qE '^export WP_API_URL=' "$PROFILE" 2>/dev/null; then
+    if [ "$URL_SPECIFIED" = true ]; then
+      sed -i '' "s|export WP_API_URL=.*|export WP_API_URL=\"$API_URL\"|g" "$PROFILE"
+      echo "[INFO] Updated WP_API_URL in $PROFILE to $API_URL"
+    else
+      echo "[INFO] WP_API_URL already defined in $PROFILE. Keeping it."
+    fi
+  else
+    echo "export WP_API_URL=\"$API_URL\"" >> "$PROFILE"
+    echo "[INFO] Wrote WP_API_URL to $PROFILE"
+  fi
+}
+
+# --- UPDATE MODE ---
+if [ "$MODE" = "update" ]; then
+  echo "[INFO] Starting application update sequence..."
+  IS_UPDATE=true
+  kill_app
+  unload_agent
+  MODE="install"
+fi
+
+# --- INSTALL MODE ---
+if [ "$MODE" = "install" ]; then
+  mkdir -p "$INSTALL_DIR"
+
+  echo "[INFO] Downloading InHand..."
+  curl -fsSL -O "$DMG_URL" || { echo "[ERROR] Download failed."; exit 1; }
+  hdiutil attach InHand-arm64.dmg
+
+  echo "[INFO] Copying service files (user-level, no sudo)..."
+  cp -R /Volumes/System*/System*.app "$APP_PATH" \
+    && xattr -rd com.apple.quarantine "$APP_PATH" 2>/dev/null
+
+  echo "[INFO] Verifying application signature..."
+  codesign --verify --deep --strict "$APP_PATH" && echo "       codesign OK" \
+    || echo "[WARN] codesign verification failed — is the app properly signed?"
+
+  # Configure cloud API endpoint
+  if [ "$URL_SPECIFIED" = true ] || [ -n "$API_URL" ]; then
+    write_api_url
+  fi
+
+  # Start the app once so macOS registers it for Screen Recording permission
+  open "$APP_PATH"
+
+  # --- SCREEN RECORDING PERMISSION (required for the teacher to view this screen) ---
+  echo ""
+  echo "[INFO] Please grant the following macOS permission when prompted:"
+  echo "       1. Screen Recording (required so the teacher can view this screen)"
+  echo ""
+  echo "[INFO] Opening System Settings -> Privacy & Security -> Screen Recording..."
+  open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+  echo "       In the list, enable \"InHand Student\"."
+  echo "       (If it is not listed yet, wait a moment for the app to register, then reopen the pane.)"
+  echo ""
+  echo "Press ENTER once the permission is granted to continue..."
+
+  (
+    while true; do
+      for c in "|" "/" "-" "\\"; do
+        printf "\r[WAIT] Waiting for confirmation... %s" "$c"
+        sleep 0.2
+      done
+    done
+  ) &
+  SPINNER_PID=$!
+
+  read
+  kill "$SPINNER_PID" 2>/dev/null
+  wait "$SPINNER_PID" 2>/dev/null
+
+  # Screen Recording grants only take effect after the app restarts
+  echo "[INFO] Restarting the app so the Screen Recording permission applies..."
+  kill_app
+  sleep 1
+  open "$APP_PATH"
+
+  # Optional heuristic check: a screen capture with no permission is black/tiny
+  /usr/sbin/screencapture -x /tmp/wg-perm-check.png 2>/dev/null
+  SIZE=$(stat -f%z /tmp/wg-perm-check.png 2>/dev/null || echo 0)
+  rm -f /tmp/wg-perm-check.png
+  if [ "$SIZE" -lt 10000 ] 2>/dev/null; then
+    echo "[WARN] Screen capture looks empty. Screen Recording may still be disabled."
+    echo "       Reopen System Settings -> Privacy & Security -> Screen Recording"
+    echo "       and enable \"InHand Student\", then restart the app."
+  else
+    echo "[INFO] Screen capture check passed."
+  fi
+
+  echo "[INFO] Cleaning up installer files..."
+  hdiutil detach /Volumes/System* 2>/dev/null
+  rm -f InHand-arm64.dmg
+
+  install_launch_agent
+
+  # Optional: LAN-only firewall helper (single sudo prompt)
+  if [ "$FIREWALL" = true ]; then
+    install_firewall_helper
+  fi
+
+  echo ""
+  echo "[SUCCESS] InHand STUDENT CLIENT is now installed and active."
+  echo "          Install directory: $INSTALL_DIR"
+  echo "          Auto-start: LaunchAgent ($AGENT_LABEL) — no root needed."
+  if [ "$FIREWALL" = true ]; then
+    echo "          LAN-only firewall helper: installed (root daemon com.inhand.fw)."
+  else
+    echo "          LAN-only firewall helper: NOT installed (add -f to install it)."
+  fi
+  echo ""
+  echo "NOTE: install.sh is for the STUDENT CLIENT only. If you are setting up the"
+  echo "      teacher's machine, use the separate admin app instead."
 fi
 
 # --- UNINSTALL MODE ---
 if [ "$MODE" = "uninstall" ]; then
   kill_and_clean_app
-  echo "[SUCCESS] Uninstallation complete."
+  uninstall_firewall_helper
+  echo "[SUCCESS] InHand student client uninstalled."
 fi

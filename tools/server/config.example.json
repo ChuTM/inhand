@@ -1,0 +1,18 @@
+{
+  "HOST": "127.0.0.1",
+  "PORT": 8787,
+  "BASE_PATH": "/api/v1",
+  "STORAGE_DRIVER": "sqlite",
+  "DB_FILE": "data/server.db",
+  "JSON_FILE": "data/data.json",
+  "KEYS_FILE": "data/cloud-keys.json",
+  "ADMIN_TOKEN": "",
+  "REGISTRATION_TTL_MS": 3600000,
+  "SWEEP_INTERVAL_MS": 60000,
+  "KEY_GRACE_MS": 86400000,
+  "PUBLIC_IP_MODE": "auto",
+  "RATE_LIMIT": 300,
+  "RATE_LIMIT_WINDOW_MS": 60000,
+  "VERBOSE": true,
+  "LOG_FILE": ""
+}

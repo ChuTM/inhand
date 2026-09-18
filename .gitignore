@@ -219,3 +219,41 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
+
+# =============================================================================
+# InHand — sensitive / local / testing-only files
+# =============================================================================
+
+# Cloud server: local runtime data (DB files, cloud Ed25519 keys, logs, state)
+tools/server/data/
+tools/server/config.json
+tools/server/*.tmp
+tools/server/*.log
+
+# Secrets / credentials — never commit
+# (Firebase service-account JSON, raw or base64; .env files are already above)
+**/*serviceAccountKey*.json
+**/firebase-service-account*.json
+**/firebase-admin-sdk*.json
+tools/server/.firebase-credentials*
+
+# Local test output (unless a test explicitly writes into the repo)
+test-results/
+*.test-output.*
+.tmp/
+
+# Built artifacts / installers
+*.dmg
+*.pkg
+dist/
+build/
+*.asar
+
+# Runtime state written by the host/client on this machine
+device_history.json
+
+# Local secrets / private materials (service accounts, keys, credentials)
+private/
+design/
+.vercel
+.env*

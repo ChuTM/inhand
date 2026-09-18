@@ -28,6 +28,16 @@ function showConnecting(text) {
 	connecting.classList.remove("hidden");
 }
 
+// Every teacher->student event is signed by the teacher's private key and
+// re-signed by the server on its way out. Verify before trusting.
+async function isVerified(type, env) {
+	try {
+		return await window.electronAPI.verifyTeacherEvent(type, env);
+	} catch {
+		return false;
+	}
+}
+
 async function init() {
 	serverUrl = serverUrlParam || `http://localhost:7100`;
 	socket = io(serverUrl);
@@ -68,40 +78,52 @@ async function init() {
 		}
 	});
 
-	socket.on("screen-share-answer", async (data) => {
+	socket.on("screen-share-answer", async (env) => {
 		if (!peerConnection) return;
+		if (!(await isVerified("screen-share-answer", env))) {
+			console.warn("Rejected unsigned screen-share-answer");
+			return;
+		}
 		try {
 			await peerConnection.setRemoteDescription(
-				new RTCSessionDescription(data.sdp),
+				new RTCSessionDescription(env.p.sdp),
 			);
+			console.log("[share] answer accepted from teacher");
 		} catch (err) {
 			console.error("Error handling answer:", err);
 		}
 	});
 
-	socket.on("screen-share-ice-candidate", async (data) => {
+	socket.on("screen-share-ice-candidate", async (env) => {
 		if (!peerConnection) return;
+		if (!(await isVerified("screen-share-ice-candidate", env))) {
+			console.warn("Rejected unsigned ICE candidate");
+			return;
+		}
 		try {
 			await peerConnection.addIceCandidate(
-				new RTCIceCandidate(data.candidate),
+				new RTCIceCandidate(env.p.candidate),
 			);
 		} catch (err) {
 			console.error("Error handling ICE candidate:", err);
 		}
+		console.log("[share] ice candidate added");
 	});
 
 	// Broadcast stop only affects the teacher's shared-screen windows
-	socket.on("teacher-stop-share", () => {
+	socket.on("teacher-stop-share", async (env) => {
+		if (!(await isVerified("teacher-stop-share", env))) return;
 		if (currentMode === "teacher-view") stopShare();
 	});
 	// Per-student stop only affects this student's shared-screen window
-	socket.on("stop-student-stream", () => {
+	socket.on("stop-student-stream", async (env) => {
+		if (!(await isVerified("stop-student-stream", env))) return;
 		if (currentMode === "student-share") stopShare();
 	});
 }
 
 // Watch the teacher's broadcast: create a receive-only connection and send an
-// offer to the teacher. The teacher answers with their shared screen.
+// ECIES-encrypted offer to the teacher. The teacher answers with their screen.
 async function startTeacherView(teacherId) {
 	try {
 		peerConnection = new RTCPeerConnection({
@@ -109,17 +131,27 @@ async function startTeacherView(teacherId) {
 		});
 		peerConnection.addTransceiver("video", { direction: "recvonly" });
 
-		peerConnection.onicecandidate = (event) => {
+		peerConnection.onicecandidate = async (event) => {
 			if (event.candidate) {
+				// RTCIceCandidate fields live on the prototype; the structured
+				// clone used by IPC drops them. Send plain fields instead.
+				const c = event.candidate;
+				const enc = await window.electronAPI.encryptForTeacher({
+					candidate: {
+						candidate: c.candidate,
+						sdpMid: c.sdpMid,
+						sdpMLineIndex: c.sdpMLineIndex,
+					},
+				});
 				socket.emit("screen-share-ice-candidate", {
 					targetId: teacherId,
-					candidate: event.candidate,
+					candidate: enc,
 				});
 			}
 		};
 
 		peerConnection.ontrack = (event) => {
-			console.log("Received track from teacher:", event.track.kind);
+			console.log("[share] RECEIVED TRACK from teacher:", event.track.kind);
 			video.srcObject = event.streams[0];
 			video.hidden = false;
 			connecting.classList.add("hidden");
@@ -128,12 +160,31 @@ async function startTeacherView(teacherId) {
 		const offer = await peerConnection.createOffer();
 		await peerConnection.setLocalDescription(offer);
 
+		// RTCSessionDescription fields live on the prototype; the structured
+		// clone used by IPC drops them (the offer would arrive as null).
+		// Send plain {type, sdp} instead.
+		const enc = await window.electronAPI.encryptForTeacher({
+			type: offer.type,
+			sdp: offer.sdp,
+		});
 		socket.emit("screen-share-offer", {
 			targetId: teacherId,
-			sdp: offer,
+			sdp: enc,
 		});
+		console.log("[share] teacher-view offer sent to", teacherId);
 
 		showConnecting("Connecting to teacher's screen...");
+
+		// Give up after 12s if no track arrives: show a real message instead of
+		// hanging forever on "connecting".
+		setTimeout(() => {
+			if (video.hidden) {
+				console.warn("[share] teacher-view timeout: no stream received");
+				showConnecting(
+					"No stream received. The teacher may need to grant Screen Recording permission to InHand Admin, unlock the app, or restart the share.",
+				);
+			}
+		}, 12000);
 	} catch (err) {
 		console.error("Failed to start teacher view:", err);
 		showConnecting("Failed to start: " + err.message);
@@ -141,7 +192,7 @@ async function startTeacherView(teacherId) {
 }
 
 // Share this student's screen with the teacher's "view student" window:
-// capture locally, then send an offer with the captured tracks.
+// capture locally, then send an encrypted offer with the captured tracks.
 async function startStudentShare(teacherId) {
 	try {
 		const sources = await window.electronAPI.getScreenSources();
@@ -171,11 +222,20 @@ async function startStudentShare(teacherId) {
 
 		stream.getTracks().forEach((track) => peerConnection.addTrack(track, stream));
 
-		peerConnection.onicecandidate = (event) => {
+		peerConnection.onicecandidate = async (event) => {
 			if (event.candidate) {
+				// Send plain fields; RTCIceCandidate instances do not survive IPC.
+				const c = event.candidate;
+				const enc = await window.electronAPI.encryptForTeacher({
+					candidate: {
+						candidate: c.candidate,
+						sdpMid: c.sdpMid,
+						sdpMLineIndex: c.sdpMLineIndex,
+					},
+				});
 				socket.emit("screen-share-ice-candidate", {
 					targetId: teacherId,
-					candidate: event.candidate,
+					candidate: enc,
 				});
 			}
 		};
@@ -194,10 +254,16 @@ async function startStudentShare(teacherId) {
 		const offer = await peerConnection.createOffer();
 		await peerConnection.setLocalDescription(offer);
 
+		// Send plain {type, sdp}; RTCSessionDescription instances do not survive IPC.
+		const enc = await window.electronAPI.encryptForTeacher({
+			type: offer.type,
+			sdp: offer.sdp,
+		});
 		socket.emit("screen-share-offer", {
 			targetId: teacherId,
-			sdp: offer,
+			sdp: enc,
 		});
+		console.log("[share] student-share capture ok, offer sent to", teacherId);
 	} catch (err) {
 		console.error("Failed to start student share:", err);
 		const noticeText = document.getElementById("notice-text");

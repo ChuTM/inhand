@@ -1,0 +1,15 @@
+# InHand cloud server — Vercel deployment (project root = tools/server/).
+# Only the server code goes to Vercel; nothing else in the repo is included.
+.git
+.github
+.gitignore
+data
+config.json
+.env
+.env.local
+private
+node_modules
+*.log
+*.dmg
+*.pkg
+public/README.md
