@@ -1,49 +1,45 @@
 # Teacher Setup Guide
 
-Set up the InHand teacher app and admin console so you can register your school, manage students and share your screen in class.
+Get the InHand teacher app running on your Mac so you can watch student screens, share your own, and run approved commands in class.
 
 ![The InHand teacher app — live client list, screen sharing and command controls](/images/docs/teacher-console.png)
 
-## 1. Sign in
+## 1. Install the teacher app
+
+Download the latest **InHand teacher app** (`.dmg`). Drag it into Applications and open it.
+
+Ask for InHand Support for a `Registration Token` for the first time you set up the app. The key is a one-time token that registers your school with the cloud and allows the teacher app to discover student devices on the school network.
+
+## 2. Sign in
 
 1. Open the **InHand teacher app** on your Mac.
-2. Choose **Sign in with Google** or **Sign in with a passkey** — the same account you use for the admin console.
-3. The app connects to the cloud, discovers your school and loads your class list.
+2. Fill the password, optional name, and the one-time registration token you received from us.
+3. The app connects to the school's cloud, discovers your school, and loads today's class list.
 
-> The first admin in your school signs in with the **admin token** shown in the server environment (`ADMIN_TOKEN`). Use it once to open the console and add your Google account / passkey.
+## 3. Grant screen-recording permission
 
-## 2. Create a registration token
+The first time you start a share, macOS asks for **Screen Recording** permission. Click **Allow**.
 
-Each school registers once — one public IP is one registration.
+If you missed the prompt: **System Settings → Privacy & Security → Screen Recording**, turn InHand on, then quit and reopen the app.
 
-1. Open the **Cloud Admin Console** at `/admin`.
-2. Under **Quick Actions**, choose **Create New Registration Token**.
-3. Copy the one-time token and give it to the teacher who will register the school.
+Nothing is broadcast unless you press **Share** — you control it at all times.
 
-## 3. Register the school
+## 4. Run your first session
 
-On a machine inside the school's network:
+1. Make sure student devices have joined. They show up in the live list with their name and **ONLINE / OFFLINE** status.
+2. Click any student to **view their screen** — the student sees a clear on-screen indicator that they are being viewed.
+3. Press **Share** to broadcast your screen to every joined device at once.
+4. Use **Push focus wallpaper** to lock every student Mac onto one image; release it when the lesson moves on.
+5. Use **Commands** (sleep, lock screen, open a file, etc.) from the pre-approved list.
 
-1. Open the teacher app and choose **Register school**.
-2. Enter the registration token.
-3. The app calls `/api/v1/discover`, verifies the cloud-signed response and stores the school's public key.
+## 5. Student installation
 
-You only do this once per school.
+Students install the client themselves from the install page your school provides:
 
-## 4. Grant screen-sharing access
+→ [Student installation guide](/docs/student-install)
 
-When you start your first share, macOS asks for **Screen Recording** permission — this lets the class see the window you choose to share. Click **Allow** in System Settings → Privacy & Security → Screen Recording if you missed the prompt.
+## Troubleshooting
 
-You control sharing at all times: nothing is broadcast unless you start a share.
-
-## 5. Manage your team (optional)
-
-In the admin console you can:
-
-- **Add admins** — only allowlisted emails can sign in.
-- **Register passkeys** — bound to your allowlisted admin account.
-- **View the audit log** — every privileged action, who did what and when.
-
-## 6. Update clients in bulk
-
-Open **Settings → command panel** in the dashboard and send the signed `update` command. Every student client verifies your signature, downloads the new version over HTTPS and replaces itself — no `sudo`, no SSH to each machine.
+- **No students show up.** Check you and the student devices are on the same school network. Ask a student to relaunch the client.
+- **Screen share shows a black window.** Re-check Screen Recording permission in System Settings, then reopen the app.
+- **Sign-in rejected.** Your email is not allowlisted — contact school IT.

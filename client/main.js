@@ -863,7 +863,33 @@ function connectSocket() {
 	});
 
 	socket.on("enforce-wallpaper", () => {
-		if (toolUsable) enforceWallpaper();
+		enforceWallpaper();
+	});
+
+	// Teacher can pause wallpaper enforcement mid-session (student free to change
+	// their own desktop) or resume it. Pause is session-only: on restart the
+	// enforcement loop starts again automatically (see main()).
+	socket.on("wallpaper-pause", (env) => {
+		if (!isVerifiedTeacherEvent("wallpaper-pause", env)) {
+			audit("unauth-wp-pause", {});
+			return;
+		}
+		if (enforcementTimer) {
+			clearInterval(enforcementTimer);
+			enforcementTimer = null;
+		}
+		console.log("[wp] enforcement paused by teacher");
+		audit("wp-paused", {});
+	});
+
+	socket.on("wallpaper-resume", (env) => {
+		if (!isVerifiedTeacherEvent("wallpaper-resume", env)) {
+			audit("unauth-wp-resume", {});
+			return;
+		}
+		startEnforcementLoop();
+		console.log("[wp] enforcement resumed by teacher");
+		audit("wp-resumed", {});
 	});
 
 	socket.on("admin-change", (allow) => {
@@ -1005,7 +1031,7 @@ function startEnforcementLoop() {
 	if (enforcementTimer) clearInterval(enforcementTimer);
 	console.log("[wp-debug] enforcement loop start, interval=", settings.checkInterval, "path=", settings.wallpaperPath, "usable=", toolUsable);
 	enforcementTimer = setInterval(() => {
-		if (toolUsable) enforceWallpaper();
+		enforceWallpaper();
 	}, settings.checkInterval);
 }
 
