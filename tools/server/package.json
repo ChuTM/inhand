@@ -9,7 +9,8 @@
   },
   "dependencies": {
     "@simplewebauthn/server": "^11.0.0",
-    "firebase-admin": "^12.7.0"
+    "firebase-admin": "^12.7.0",
+    "markdown-it": "^15.0.2"
   },
   "scripts": {
     "start": "node scripts/server.mjs",

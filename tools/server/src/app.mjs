@@ -21,6 +21,7 @@ import { fileURLToPath } from "url";
 import { loadCloudKeys, signPayload } from "./crypto.mjs";
 import { createStorage } from "./storage.mjs";
 import * as auth from "./auth.mjs";
+import { matchMdRoute, renderMarkdown } from "./markdown.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -42,6 +43,7 @@ export async function createApp(config) {
 	const PUBLIC_DIR = path.join(__dirname, "..", "public");
 	const STATIC_FILES = {
 		"/": { file: "index.html", mime: "text/html; charset=utf-8" },
+		"/login": { file: "login.html", mime: "text/html; charset=utf-8" },
 		"/admin": { file: "admin.html", mime: "text/html; charset=utf-8" },
 		"/css/base.css": { file: "css/base.css", mime: "text/css; charset=utf-8" },
 		"/css/login.css": { file: "css/login.css", mime: "text/css; charset=utf-8" },
@@ -49,10 +51,19 @@ export async function createApp(config) {
 		"/js/api.js": { file: "js/api.js", mime: "text/javascript; charset=utf-8" },
 		"/js/login.js": { file: "js/login.js", mime: "text/javascript; charset=utf-8" },
 		"/js/admin.js": { file: "js/admin.js", mime: "text/javascript; charset=utf-8" },
+		"/css/legal.css": { file: "css/legal.css", mime: "text/css; charset=utf-8" },
+		"/css/home.css": { file: "css/home.css", mime: "text/css; charset=utf-8" },
+		"/js/legal.js": { file: "js/legal.js", mime: "text/javascript; charset=utf-8" },
+		"/js/home.js": { file: "js/home.js", mime: "text/javascript; charset=utf-8" },
+		"/favicon.png": { file: "favicon.png", mime: "image/png" },
+		"/images/docs/teacher-console.png": { file: "images/docs/teacher-console.png", mime: "image/png" },
+		"/images/docs/security-gate.png": { file: "images/docs/security-gate.png", mime: "image/png" },
+		"/images/docs/student-share.png": { file: "images/docs/student-share.png", mime: "image/png" },
+		"/images/docs/permission.png": { file: "images/docs/permission.png", mime: "image/png" },
 	};
 	const staticCache = {};
 	for (const [pathname, info] of Object.entries(STATIC_FILES)) {
-		staticCache[pathname] = fs.readFileSync(path.join(PUBLIC_DIR, info.file), "utf8");
+		staticCache[pathname] = fs.readFileSync(path.join(PUBLIC_DIR, info.file));
 	}
 	// Security headers on every static response (CSP is strict: only gstatic
 	// for Firebase, everything else from self; no inline scripts anywhere).
@@ -684,6 +695,13 @@ export async function createApp(config) {
 		}
 		if (staticCache[pathname]) {
 			return { staticFile: pathname };
+		}
+		// Public Markdown pages (configurable mounts, see markdown.mjs MD_ROUTES):
+		//   /legal, /legal/privacy, /blogs/example-usage, …
+		const mdMatch = matchMdRoute(pathname);
+		if (mdMatch && current_req.method === "GET") {
+			const { cfg, subpath } = mdMatch;
+			return { handler: () => renderMarkdown(resolve_res, cfg, subpath) };
 		}
 		if (pathname === "/healthz") {
 			return { handler: handleHealth };

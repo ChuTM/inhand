@@ -44,6 +44,12 @@ let tray = null;
 let mainWindow = null;
 const PORT = 7100;
 
+// Developer mode: launched via `npm run dev` (electron . --dev) or
+// INHAND_DEV=1. Enables DevTools, verbose socket logging and an
+// auto-provisioned test keyring. Never enabled in packaged builds.
+const DEV_MODE =
+	process.argv.includes("--dev") || process.env.INHAND_DEV === "1";
+
 let allow_config = false;
 
 const STATIC_RES_PATH = path.join(__dirname, "res");
@@ -103,6 +109,11 @@ const settings = {
 // ---------------------------------------------------------------------------
 initAudit(DATA_RES_PATH);
 keyring.initKeystore(DATA_RES_PATH);
+
+if (DEV_MODE && !keyring.keyringExists()) {
+	keyring.setup("dev-password", "Dev School", "");
+	console.log("[dev] Auto-created test keyring (password: dev-password)");
+}
 
 let deviceHistory = [];
 const activeUsers = new Map();
@@ -499,9 +510,12 @@ io.on("connection", (socket) => {
 		`New connection: ${socket.id} from ${socket.handshake.address}, transport: ${socket.conn.transport.name}`,
 	);
 	audit("socket-connect", { id: socket.id });
-	safeOn("disconnect", () => audit("socket-disconnect", { id: socket.id }));
+	if (DEV_MODE) {
+		socket.onAny((ev) => console.log(`[dev:socket:${socket.id}] ${ev}`));
+	}
+	safeOn(socket, "disconnect", () => audit("socket-disconnect", { id: socket.id }));
 
-	safeOn("register-mac", (payload) => {
+	safeOn(socket, "register-mac", (payload) => {
 		try {
 			// Client registers with an ECIES-encrypted { name } payload.
 			const { encPriv } = keyring.requireUnlocked();
@@ -527,7 +541,7 @@ io.on("connection", (socket) => {
 		}
 	});
 
-	safeOn("disconnect", () => {
+	safeOn(socket, "disconnect", () => {
 		const macUsername = activeUsers.get(socket.id);
 		if (macUsername) {
 			activeUsers.delete(socket.id);
@@ -558,7 +572,7 @@ io.on("connection", (socket) => {
 		}
 	});
 
-	safeOn("share-window-join", (data) => {
+	safeOn(socket, "share-window-join", (data) => {
 		// Student share windows announce themselves so we can sync current share state.
 		// Teacher "view student" windows are authorized exclusively via viewer-claim.
 		socket.emit("share-active", { active: shareActive });
@@ -566,7 +580,7 @@ io.on("connection", (socket) => {
 
 	// Teacher "view student" windows must prove authorization with a one-time
 	// token issued by the main process when the admin clicked "View Screen".
-	safeOn("viewer-claim", (data) => {
+	safeOn(socket, "viewer-claim", (data) => {
 		const claim = viewerTokens.get(data?.token);
 		if (!claim || Date.now() > claim.exp) {
 			audit("viewer-claim-rejected", {});
@@ -584,7 +598,7 @@ io.on("connection", (socket) => {
 
 	// A student share window asks to receive the teacher's broadcast or to
 	// stream its screen to a viewer. SDP is ECIES-encrypted by the student.
-	safeOn("screen-share-offer", (data) => {
+	safeOn(socket, "screen-share-offer", (data) => {
 		try {
 			const { encPriv } = keyring.requireUnlocked();
 			const sdp = JSON.parse(decryptFrom(encPriv, data.sdp));
@@ -613,7 +627,7 @@ io.on("connection", (socket) => {
 	});
 
 	// Answers are teacher-originated; the server signs them on their way to students.
-	safeOn("screen-share-answer", (data) => {
+	safeOn(socket, "screen-share-answer", (data) => {
 		try {
 			socket.to(data.targetId).emit(
 				"screen-share-answer",
@@ -628,7 +642,7 @@ io.on("connection", (socket) => {
 		}
 	});
 
-	safeOn("screen-share-ice-candidate", (data) => {
+	safeOn(socket, "screen-share-ice-candidate", (data) => {
 		// Student -> teacher: candidate is ECIES-encrypted; decrypt and forward.
 		// The envelope carries v:1 (no enc flag), so detect it by the version.
 		if (data.candidate && (data.candidate.enc === true || data.candidate.v === 1)) {
@@ -661,7 +675,7 @@ io.on("connection", (socket) => {
 
 	// Privileged teacher events from the network MUST be signed by the teacher's
 	// private key. Anything else is rejected and audited.
-	safeOn("teacher-start-share", (data) => {
+	safeOn(socket, "teacher-start-share", (data) => {
 		if (!verifySignedEnvelope("teacher-start-share", data)) {
 			audit("unauth-teacher-event", { type: "teacher-start-share" });
 			return;
@@ -669,7 +683,7 @@ io.on("connection", (socket) => {
 		handleTeacherStartShare(data.p?.persistent);
 	});
 
-	safeOn("teacher-stop-share", (data) => {
+	safeOn(socket, "teacher-stop-share", (data) => {
 		if (!verifySignedEnvelope("teacher-stop-share", data)) {
 			audit("unauth-teacher-event", { type: "teacher-stop-share" });
 			return;
@@ -680,7 +694,7 @@ io.on("connection", (socket) => {
 	// A "view student" window asks the student to start streaming. The window
 	// already proved authorization via viewer-claim (one-time token), so no
 	// signature is needed — but it MUST map to the student it claimed.
-	safeOn("request-student-stream", (data) => {
+	safeOn(socket, "request-student-stream", (data) => {
 		const viewingStudent = viewerWindows.get(socket.id);
 		if (!viewingStudent || viewingStudent !== data?.studentId) {
 			audit("unauth-view-request", { studentId: data?.studentId });
@@ -692,6 +706,10 @@ io.on("connection", (socket) => {
 
 server.listen(PORT, "::", () => {
 	console.log(`Server running on port ${PORT}`);
+	if (DEV_MODE) {
+		console.log("[dev] Developer mode active: DevTools on, verbose socket logs, test keyring.");
+		console.log("[dev] Dashboard: http://localhost:" + PORT + "/admin");
+	}
 });
 
 // ---------------------------------------------------------------------------
@@ -861,6 +879,7 @@ function createScreenShareWindow(streamUrl, title, peerId) {
 		if (level >= 2) audit("share-window-console", { title, message });
 	});
 	win.loadURL(streamUrl);
+	if (DEV_MODE) win.webContents.openDevTools({ mode: "detach" });
 	win.on("closed", () => {
 		screenShareWindows.delete(peerId);
 	});
@@ -900,6 +919,7 @@ function showWindow() {
 			if (level >= 2) audit("admin-window-console", { message });
 		});
 		mainWindow.loadURL(`http://localhost:${PORT}/admin`);
+		if (DEV_MODE) mainWindow.webContents.openDevTools({ mode: "detach" });
 		mainWindow.on("close", (e) => {
 			if (!app.isQuitting) {
 				e.preventDefault();

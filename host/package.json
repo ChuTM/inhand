@@ -6,6 +6,7 @@
 	"type": "module",
 	"scripts": {
 		"start": "electron .",
+		"dev": "electron . --dev",
 		"build": "electron-builder"
 	},
 	"build": {
