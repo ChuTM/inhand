@@ -31,6 +31,7 @@ export const MD_ROUTES = [
 	{ route: "/legal", dir: "markdowns/legal", label: "Legal" },
 	{ route: "/blogs", dir: "markdowns/blogs", label: "Blogs" },
 	{ route: "/docs", dir: "markdowns/docs", label: "Docs" },
+	{ route: "/contact", dir: "markdowns/contact", label: "Contact" },
 ];
 
 // Raw HTML is deliberately disabled: legal content must render as pure
@@ -148,6 +149,83 @@ function esc(s) {
 		.replace(/"/g, "&quot;");
 }
 
+function escMd(s) {
+	return String(s)
+		.replace(/\\/g, "\\\\")
+		.replace(/`/g, "\\`")
+		.replace(/[*_~#|]/g, (c) => "\\" + c)
+		.replace(/\[/g, "\\[")
+		.replace(/\]/g, "\\]");
+}
+
+// ---- dynamic Update Logs (fetched live from the GitHub commit history) --------
+// The /docs/changelog page is generated at request time from the repository's
+// public commit list, so a new commit is reflected immediately — no manual
+// regeneration step. Results are cached briefly; if GitHub is unreachable or
+// rate-limited we fall back to the static changelog.md on disk.
+const CHANGELOG_REPO = "ChuTM/inhand"; // canonical repo (wallpaper-guard redirects here)
+const CHANGELOG_REPO_BASE = `https://github.com/${CHANGELOG_REPO}`;
+const CHANGELOG_TTL_MS = 5 * 60 * 1000;
+const CHANGELOG_FETCH_TIMEOUT_MS = 6000;
+const CHANGELOG_FAIL_BACKOFF_MS = 30 * 1000;
+
+let changelogCache = null;
+let changelogCacheAt = 0;
+let changelogLastAttempt = 0;
+
+function changelogMarkdown(commits) {
+	const byDate = new Map();
+	for (const c of commits) {
+		if (!byDate.has(c.date)) byDate.set(c.date, []);
+		byDate.get(c.date).push(c);
+	}
+	let md = `# Update Logs\n\nEvery commit message from the [InHand repository](${CHANGELOG_REPO_BASE}), newest first — fetched live from GitHub.\n\n`;
+	for (const [date, items] of byDate) {
+		md += `## ${date}\n\n`;
+		for (const c of items) {
+			md += `- [\`${c.hash}\`](${c.url}) ${escMd(c.msg)}\n`;
+		}
+		md += "\n";
+	}
+	return md;
+}
+
+async function fetchChangelogMarkdown() {
+	const now = Date.now();
+	if (changelogCache && now - changelogCacheAt < CHANGELOG_TTL_MS) return changelogCache;
+	if (now - changelogLastAttempt < CHANGELOG_FAIL_BACKOFF_MS) {
+		throw new Error("changelog fetch on cooldown after a recent failure");
+	}
+	changelogLastAttempt = now;
+	const ac = new AbortController();
+	const timer = setTimeout(() => ac.abort(), CHANGELOG_FETCH_TIMEOUT_MS);
+	try {
+		const resp = await fetch(
+			`https://api.github.com/repos/${CHANGELOG_REPO}/commits?per_page=100`,
+			{
+				headers: { "User-Agent": "inhand-server", Accept: "application/vnd.github+json" },
+				signal: ac.signal,
+			},
+		);
+		if (!resp.ok) throw new Error(`GitHub API responded ${resp.status}`);
+		const data = await resp.json();
+		const commits = Array.isArray(data)
+			? data.map((c) => ({
+					hash: String(c.sha || "").slice(0, 7),
+					url: c.html_url || `${CHANGELOG_REPO_BASE}/commit/${c.sha}`,
+					date: String(c.commit?.author?.date || "").slice(0, 10),
+					msg: String(c.commit?.message || "").split("\n")[0] || "(no message)",
+				}))
+			: [];
+		const md = changelogMarkdown(commits);
+		changelogCache = md;
+		changelogCacheAt = Date.now();
+		return md;
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
 function htmlHeaders() {
 	return {
 		"Content-Type": "text/html; charset=utf-8",
@@ -186,7 +264,7 @@ function pageShell(title, bodyHtml, currentRoute, withSpy) {
 </head>
 <body>
 <header class="legal-header">
-  <a class="legal-brand" href="/legal">InHand <span class="legal-brand-sub">Docs</span></a>
+  <a class="legal-brand" href="../">InHand <span class="legal-brand-sub">Docs</span></a>
 </header>
 <main class="legal-main">
 ${bodyHtml}
@@ -233,7 +311,29 @@ function sectionIndicator(headings) {
 // ---- immersive document page ----------------------------------------------------
 // Content is laid out directly on the page background — no card, no frame.
 // Only the section indicator (a tool) and the header/footer chrome are glass.
-export function renderMarkdown(res, cfg, subpath) {
+export async function renderMarkdown(res, cfg, subpath) {
+	// Dynamic Update Logs: render the live GitHub commit history instead of the
+	// static file (falls back to the file when GitHub is unavailable).
+	if (cfg.route === "/docs" && subpath === "changelog") {
+		try {
+			const markdown = await fetchChangelogMarkdown();
+			const env = { route: cfg.route, docDir: "" };
+			const html = md.render(markdown, env);
+			const headings = env.headings || [];
+			const body = `<div class="md-layout">
+  <article class="md-doc">
+    <p class="md-back"><a href="${cfg.route}">‹ ${esc(cfg.label)}</a></p>
+    <div class="md-body">${html}</div>
+    <p class="md-updated">Fetched live from ${esc(CHANGELOG_REPO_BASE)}</p>
+  </article>
+  ${sectionIndicator(headings)}
+</div>`;
+			res.writeHead(200, htmlHeaders());
+			return res.end(pageShell("Update Logs", body, cfg.route, headings.length > 0));
+		} catch {
+			// fall through to the static changelog.md below
+		}
+	}
 	const file = resolveDoc(cfg, subpath);
 	if (!file) {
 		res.writeHead(404, htmlHeaders());

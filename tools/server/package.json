@@ -15,6 +15,7 @@
   "scripts": {
     "start": "node scripts/server.mjs",
     "test": "node scripts/test.mjs",
-    "test:serverless": "node scripts/test-serverless.mjs"
+    "test:serverless": "node scripts/test-serverless.mjs",
+    "gen:changelog": "node scripts/gen-changelog.mjs"
   }
 }
