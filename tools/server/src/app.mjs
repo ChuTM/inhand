@@ -570,7 +570,53 @@ export async function createApp(config) {
 		return json(res, 200, { ok: true, audit: await storage.listAudit(100) });
 	}
 
-	// ---- router ---------------------------------------------------------------
+	// ---- latest release version (GitHub) ----------------------------------------
+// GET /api/version → { version: "<latest release tag>" }, fetched live from the
+// repository's latest GitHub release so the homepage badge tracks every release.
+const VERSION_REPO = "ChuTM/inhand";
+const VERSION_TTL_MS = 5 * 60 * 1000;
+const VERSION_FETCH_TIMEOUT_MS = 6000;
+const VERSION_FAIL_BACKOFF_MS = 30 * 1000;
+
+let versionCache = null;
+let versionCacheAt = 0;
+let versionLastAttempt = 0;
+
+async function handleVersion(res) {
+	const now = Date.now();
+	if (versionCache && now - versionCacheAt < VERSION_TTL_MS) {
+		return json(res, 200, { version: versionCache });
+	}
+	if (now - versionLastAttempt < VERSION_FAIL_BACKOFF_MS) {
+		return json(res, 503, { ok: false, error: "version service on cooldown" });
+	}
+	versionLastAttempt = now;
+	const ac = new AbortController();
+	const timer = setTimeout(() => ac.abort(), VERSION_FETCH_TIMEOUT_MS);
+	try {
+		const resp = await fetch(
+			`https://api.github.com/repos/${VERSION_REPO}/releases/latest`,
+			{
+				headers: { "User-Agent": "inhand-server", Accept: "application/vnd.github+json" },
+				signal: ac.signal,
+			},
+		);
+		if (!resp.ok) throw new Error(`GitHub API responded ${resp.status}`);
+		const data = await resp.json();
+		const tag = data.tag_name ? String(data.tag_name) : null;
+		if (!tag) return json(res, 404, { ok: false, error: "no release found" });
+		versionCache = tag;
+		versionCacheAt = Date.now();
+		return json(res, 200, { version: tag });
+	} catch (err) {
+		log(`version fetch failed: ${err.message}`);
+		return json(res, 503, { ok: false, error: "unavailable" });
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+// ---- router ---------------------------------------------------------------
 	// current_req / resolve_res: because Vercel invokes the handler per request,
 	// these module-closure references are request-scoped (see handler below).
 	let current_req = null;
@@ -695,6 +741,13 @@ export async function createApp(config) {
 		}
 		if (staticCache[pathname]) {
 			return { staticFile: pathname };
+		}
+		// Live release version for the homepage badge (GET /api/version).
+		if (parts[0] === "api" && parts[1] === "version" && parts.length === 2) {
+			if (current_req.method !== "GET") {
+				return { status: 405, body: { ok: false, error: "method not allowed" } };
+			}
+			return { handler: () => handleVersion(resolve_res) };
 		}
 		// Public Markdown pages (configurable mounts, see markdown.mjs MD_ROUTES):
 		//   /legal, /legal/privacy, /blogs/example-usage, …

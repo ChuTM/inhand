@@ -50,3 +50,20 @@
     });
   });
 })();
+
+// Live version badge: keep the footer version in sync with the latest GitHub
+// release (server proxies api.github.com via /api/version, same-origin fetch).
+// Falls back to the static version in the HTML when unavailable.
+(function () {
+  "use strict";
+  var badge = document.querySelector(".footer .col-version");
+  if (!badge) return;
+  fetch("/api/version", { headers: { Accept: "application/json" } })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) {
+      if (d && d.version) {
+        badge.textContent = /^v/i.test(d.version) ? d.version : "v" + d.version;
+      }
+    })
+    .catch(function () { /* keep the static fallback */ });
+})();
