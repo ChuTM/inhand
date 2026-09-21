@@ -23,12 +23,27 @@ LABEL="com.inhand.fw"
 
 pfctl_bin() { /sbin/pfctl "$@"; }
 
+# pf only evaluates an anchor when the main ruleset declares it. Make sure
+# /etc/pf.conf carries the com.inhand anchor point (idempotent) and reload the
+# main ruleset. The pristine file is preserved at /etc/pf.conf.inhand.bak.
+ensure_anchor() {
+  local conf="/etc/pf.conf"
+  [[ -f "$conf" ]] || { echo "inhand-fwctl: $conf missing" >&2; return 1; }
+  if ! grep -q '^[[:space:]]*anchor "com\.inhand"[[:space:]]*$' "$conf"; then
+    [[ -f "$conf.inhand.bak" ]] || cp "$conf" "$conf.inhand.bak"
+    printf '\nanchor "com.inhand"\n' >> "$conf"
+  fi
+  /sbin/pfctl -f "$conf" 2>/dev/null || true
+  return 0
+}
+
 apply_rules() {
   if [[ ! -f "$RULES" ]]; then
     echo "inhand-fwctl: rules file missing ($RULES) — reinstall helper via install.sh -f" >&2
     return 1
   fi
   /sbin/pfctl -e >/dev/null 2>&1 || true
+  ensure_anchor || return 1
   /sbin/pfctl -a "$ANCHOR" -f "$RULES" || return 1
   return 0
 }
@@ -84,7 +99,12 @@ cmd_uninstall() {
   flush_rules
   /bin/launchctl bootout system/$LABEL 2>/dev/null || true
   rm -f "$PLIST" "$STATE" "$CONFIG" "$RULES" "$FW_DIR/inhand-fw.sock" "$FW_DIR/fw.log"
-  echo "inhand-fwctl: helper removed (rules flushed, daemon unloaded, files deleted)."
+  # Remove the com.inhand anchor declaration we added to /etc/pf.conf.
+  if [[ -f /etc/pf.conf ]]; then
+    /usr/bin/sed -i '' '/^[[:space:]]*anchor "com\.inhand"[[:space:]]*$/d' /etc/pf.conf
+    /sbin/pfctl -f /etc/pf.conf 2>/dev/null || true
+  fi
+  echo "inhand-fwctl: helper removed (rules flushed, anchor declaration removed, daemon unloaded, files deleted)."
 }
 
 case "${1:-}" in
@@ -92,8 +112,9 @@ case "${1:-}" in
   unlock)   cmd_unlock ;;
   lock)     cmd_lock "${2#--ttl=}" ;;
   setkey)   cmd_setkey "${2:-}" ;;
+  ensure-anchor) ensure_anchor ;;
   uninstall) cmd_uninstall ;;
   *)
-    echo "usage: sudo inhand-fwctl {status|unlock|lock --ttl=MIN|setkey <pub>|uninstall}" >&2
+    echo "usage: sudo inhand-fwctl {status|unlock|lock --ttl=MIN|setkey <pub>|ensure-anchor|uninstall}" >&2
     exit 2 ;;
 esac

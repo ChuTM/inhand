@@ -157,6 +157,9 @@ install_firewall_helper() {
       chmod 644 /Library/LaunchDaemons/com.inhand.fw.plist
       /bin/launchctl bootout system/com.inhand.fw 2>/dev/null || true
       /bin/launchctl bootstrap system /Library/LaunchDaemons/com.inhand.fw.plist
+      # Declare the pf anchor in /etc/pf.conf so the LAN-only rules actually
+      # filter traffic (idempotent; the daemon also re-checks on every lock).
+      "$FW_DIR/inhand-fwctl" ensure-anchor || echo "[WARN] Could not declare pf anchor in /etc/pf.conf"
       echo "[OK] Firewall helper installed (root daemon com.inhand.fw)."
     ' _ "$TMP_FW/daemon.mjs" "$TMP_FW/inhand-fwctl" "$APP_EXECUTABLE" "$TMP_FW/com.inhand.fw.plist"
 

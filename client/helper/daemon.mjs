@@ -4,8 +4,11 @@
  * A tiny privileged helper that enforces "external access cut, LAN only" on
  * the student's machine. It is the ONLY privileged component in the system.
  *
- *   - Applies / removes a pf anchor (`com.inhand`) — it never touches
- *     /etc/pf.conf.
+ *   - Applies / removes a pf anchor (`com.inhand`). On first use it declares
+ *     the anchor point in /etc/pf.conf (a one-line, idempotent append; the
+ *     pristine file is kept at /etc/pf.conf.inhand.bak) and reloads the main
+ *     ruleset — a pf anchor only filters traffic when the main ruleset
+ *     references it. Uninstall removes the line again.
  *   - Listens on a Unix socket. Accepts `ping`, `status`, `setkey` and
  *     `forward` (a signed teacher `admin-command` event that the client
  *     re-forwards so the daemon can verify it with its own copy of the
@@ -40,13 +43,14 @@ const MAX_LINE = 64 * 1024;
 const VERSION = 1;
 
 /**
- * pf rules: block all outbound, then pass private ranges (LAN), loopback,
- * link-local, multicast, DHCP and DNS (see README for the DNS-tunnel caveat).
- * Written to FW_DIR/fw.rules by the daemon; `inhand-fwctl` reuses the same file.
+ * pf rules: block all outbound, then pass private ranges (LAN, IPv4 + IPv6),
+ * loopback, link-local, multicast, DHCP and DNS (see README for the DNS-tunnel
+ * caveat). Written to FW_DIR/fw.rules by the daemon; `inhand-fwctl` reuses the
+ * same file.
  */
 const RULES_TEXT = `# InHand LAN-only rules (auto-generated)
 block out log all
-pass out quick to { 10/8, 172.16/12, 192.168/16, 100.64/10, 127/8, 169.254/16, 224/4 } keep state
+pass out quick to { 10/8, 172.16/12, 192.168/16, 100.64/10, 127/8, 169.254/16, 224/4, ::1/128, fe80::/10, fc00::/7, ff00::/8 } keep state
 pass out quick proto { udp tcp } to port 53 keep state
 pass out quick proto udp to port 67 keep state
 `;
@@ -158,12 +162,68 @@ function runPf(args) {
 	});
 }
 
+function runPfOut(args) {
+	return new Promise((resolve) => {
+		if (MOCK) {
+			resolve({ status: 0, stdout: `anchor "com.inhand" all` });
+			return;
+		}
+		execFile(PFCTL, args, (err, stdout, _stderr) => {
+			resolve({ status: err ? err.code ?? 1 : 0, stdout: String(stdout || "") });
+		});
+	});
+}
+
 async function enablePf() {
 	if (MOCK) return true;
 	// Ignore "already enabled" failures.
 	const r = await runPf(["-e"]);
 	if (r.status !== 0 && !/already enabled/i.test(r.stderr)) {
 		log({ error: "pf enable failed", stderr: r.stderr });
+		return false;
+	}
+	return true;
+}
+
+// macOS evaluates an anchor only when the main ruleset declares it. Apple's
+// default /etc/pf.conf has no com.inhand anchor, so rules loaded purely with
+// `pfctl -a com.inhand -f …` would never run. Declare the anchor point in
+// /etc/pf.conf (idempotent append, original preserved as a backup) and reload
+// the main ruleset so the anchor sits on the filter path.
+const PF_CONF = "/etc/pf.conf";
+const PF_CONF_BACKUP = "/etc/pf.conf.inhand.bak";
+const ANCHOR_LINE = 'anchor "com.inhand"';
+
+async function ensureAnchor() {
+	if (MOCK) return true;
+	let conf = "";
+	try {
+		conf = fs.readFileSync(PF_CONF, "utf8");
+	} catch {
+		log({ error: "pf.conf missing", file: PF_CONF });
+		return false;
+	}
+	if (!new RegExp(`^\\s*${ANCHOR_LINE.replace(/"/g, '\\"')}\\s*$`, "m").test(conf)) {
+		try {
+			if (!fs.existsSync(PF_CONF_BACKUP)) {
+				fs.copyFileSync(PF_CONF, PF_CONF_BACKUP);
+			}
+			fs.appendFileSync(PF_CONF, "\n" + ANCHOR_LINE + "\n", { mode: 0o644 });
+		} catch (e) {
+			log({ error: "pf.conf append failed", message: e.message });
+			return false;
+		}
+	}
+	// Reload the main ruleset so the anchor declaration is live. A non-zero
+	// exit is tolerated (Apple's own com.apple anchor load can fail on some
+	// installs); we verify the anchor actually landed below.
+	const r = await runPf(["-f", PF_CONF]);
+	if (r.status !== 0) {
+		log({ warn: "pfctl -f non-zero", stderr: r.stderr });
+	}
+	const check = await runPfOut(["-s", "Anchors"]);
+	if (!/com\.inhand/.test(check.stdout)) {
+		log({ error: "com.inhand anchor not on filter path", stderr: r.stderr });
 		return false;
 	}
 	return true;
@@ -194,6 +254,7 @@ async function flushRules() {
 async function applyLock(ttlMinutes) {
 	const ttl = Math.min(1440, Math.max(1, Math.round(ttlMinutes) || 60));
 	if (!(await enablePf())) return { ok: false, error: "pf-enable-failed" };
+	if (!(await ensureAnchor())) return { ok: false, error: "anchor-not-installed" };
 	if (!(await applyRules())) return { ok: false, error: "rules-failed" };
 	const state = { locked: true, since: Date.now(), deadline: Date.now() + ttl * 60_000, ttlMinutes: ttl };
 	writeState(state);
