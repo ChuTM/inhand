@@ -462,6 +462,28 @@ async function fwSyncTeacherKey() {
 	}
 }
 
+// --- ONLINE HEARTBEAT -----------------------------------------------------------
+// The client re-announces itself every HEARTBEAT_MS while connected, so a host
+// that starts AFTER this client sees it online within one heartbeat — even if
+// a re-connect event was missed. Each beat is one small ECIES-encrypted
+// message; the host treats repeats as idempotent refreshes.
+const HEARTBEAT_MS = 3000;
+let heartbeatTimer = null;
+
+function registerWithTeacher() {
+	if (!teacherPub?.encPub) {
+		console.warn("No teacher key; skipping device registration.");
+		return;
+	}
+	try {
+		socket.emit("register-mac", {
+			enc: encryptTo(teacherPub.encPub, { name: DEVICE_NAME }),
+		});
+	} catch (e) {
+		console.error("Registration failed:", e.message);
+	}
+}
+
 // --- COMMAND WHITELIST ---
 function loadCommandWhitelist() {
 	const candidates = [
@@ -619,11 +641,23 @@ function executeCommand(cmd, env) {
 			}
 			const on = !!cmd.params.on;
 			const ttl = cmd.params.ttl;
-			fwDaemonRequest("forward", { evt: env })
+			// The daemon re-verifies the teacher's signature against its own copy
+			// of the teacher key. If that key is missing (e.g. the firewall helper
+			// was installed after the client last completed discovery), sync it
+			// once before forwarding so a healthy setup self-heals.
+			(async () => {
+				await fwSyncTeacherKey();
+				return fwDaemonRequest("forward", { evt: env });
+			})()
 				.then((res) => {
 					if (!res.ok) {
 						audit("lan-only-failed", { reason: res.error });
-						reportError(cmd, new Error(res.error || "firewall helper rejected"));
+						let msg = res.error || "firewall helper rejected";
+						if (String(res.error || "").startsWith("no-key-set")) {
+							msg =
+								"no-key-set: the firewall helper has no teacher key — the student must complete cloud discovery once (reinstall the helper with install.sh -f and restart the client), or run: sudo inhand-fwctl setkey <pub>";
+						}
+						reportError(cmd, new Error(msg));
 						return;
 					}
 					audit("lan-only", {
@@ -832,13 +866,16 @@ function connectSocket() {
 		console.log(
 			`Connected to server at ${settings.serverUrl} as ${DEVICE_NAME}`,
 		);
-		if (teacherPub?.encPub) {
-			// Registration is ECIES-encrypted: only the teacher can read the name.
-			socket.emit("register-mac", {
-				enc: encryptTo(teacherPub.encPub, { name: DEVICE_NAME }),
-			});
-		} else {
-			console.warn("No teacher key; skipping device registration.");
+		registerWithTeacher();
+		// Re-announce every few seconds so a late-starting host sees this client.
+		if (heartbeatTimer) clearInterval(heartbeatTimer);
+		heartbeatTimer = setInterval(registerWithTeacher, HEARTBEAT_MS);
+	});
+
+	socket.on("disconnect", () => {
+		if (heartbeatTimer) {
+			clearInterval(heartbeatTimer);
+			heartbeatTimer = null;
 		}
 	});
 

@@ -117,6 +117,8 @@ if (DEV_MODE && !keyring.keyringExists()) {
 
 let deviceHistory = [];
 const activeUsers = new Map();
+// name -> last time the history file was written (heartbeat refresh throttle)
+const historySavedAt = new Map();
 
 const peerConnections = new Map();
 const screenShareWindows = new Map();
@@ -522,8 +524,22 @@ io.on("connection", (socket) => {
 			const data = JSON.parse(decryptFrom(encPriv, payload.enc));
 			const macUsername = String(data.name || "");
 			if (!macUsername) return;
-			io.emit("admin-change", allow_config);
+			const prev = activeUsers.get(socket.id);
 			activeUsers.set(socket.id, macUsername);
+			if (prev === macUsername) {
+				// Periodic client heartbeat (the client re-announces every 3 s so a
+				// late-starting host sees it quickly). Keep lastSeen fresh without
+				// spamming UI refreshes or disk writes — throttle to once/minute.
+				const existing = deviceHistory.find((d) => d.name === macUsername);
+				const lastSaved = historySavedAt.get(macUsername) || 0;
+				if (existing && Date.now() - lastSaved > 60_000) {
+					existing.lastSeen = new Date().toLocaleString();
+					historySavedAt.set(macUsername, Date.now());
+					saveHistory();
+				}
+				return;
+			}
+			io.emit("admin-change", allow_config);
 			audit("register-ok", { name: macUsername });
 			const existing = deviceHistory.find((d) => d.name === macUsername);
 			if (!existing) {
@@ -534,6 +550,7 @@ io.on("connection", (socket) => {
 			} else {
 				existing.lastSeen = new Date().toLocaleString();
 			}
+			historySavedAt.set(macUsername, Date.now());
 			saveHistory();
 			io.emit("refresh-ui");
 		} catch (err) {
