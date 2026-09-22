@@ -4,6 +4,7 @@ let currentMode = null;
 let targetId = null;
 let serverUrl = null;
 let localStream = null;
+let captureWs = null;
 
 const video = document.getElementById("remote-video");
 const connecting = document.getElementById("connecting");
@@ -191,29 +192,51 @@ async function startTeacherView(teacherId) {
 	}
 }
 
-// Share this student's screen with the teacher's "view student" window:
-// capture locally, then send an encrypted offer with the captured tracks.
+// Share this student's screen with the teacher's "view student" window.
+// The screen capture itself lives in the root-owned Capture helper (which
+// holds the Screen Recording grant); here we consume its JPEG frame stream
+// over a local WebSocket, paint it onto a canvas, and feed the canvas into
+// WebRTC via captureStream(). The main app can then be updated freely without
+// ever resetting the one-time capture permission.
 async function startStudentShare(teacherId) {
 	try {
-		const sources = await window.electronAPI.getScreenSources();
-		if (sources.length === 0) {
-			throw new Error("No screen sources available");
+		const helperUrl = await window.electronAPI.ensureCaptureHelper();
+		if (!helperUrl) {
+			throw new Error("Screen capture helper is not available");
 		}
-		const sourceId = sources[0].id;
 
-		const stream = await navigator.mediaDevices.getUserMedia({
-			audio: false,
-			video: {
-				mandatory: {
-					chromeMediaSource: "desktop",
-					chromeMediaSourceId: sourceId,
-					minWidth: 1280,
-					maxWidth: 1920,
-					minHeight: 720,
-					maxHeight: 1080,
-				},
-			},
+		const frameCanvas = document.createElement("canvas");
+		const fctx = frameCanvas.getContext("2d");
+
+		const ws = new WebSocket(helperUrl);
+		captureWs = ws;
+		ws.binaryType = "blob";
+
+		const frameReady = new Promise((resolve, reject) => {
+			ws.onerror = () => reject(new Error("Capture helper unreachable"));
+			ws.onmessage = async (ev) => {
+				if (typeof ev.data === "string") return; // ignore any text control frames
+				try {
+					const bmp = await createImageBitmap(ev.data);
+					if (frameCanvas.width === 0) {
+						frameCanvas.width = bmp.width;
+						frameCanvas.height = bmp.height;
+						resolve(frameCanvas);
+					}
+					fctx.drawImage(bmp, 0, 0);
+				} catch (err) {
+					reject(new Error("Frame decode failed: " + err.message));
+				}
+			};
 		});
+		// Never let the share hang if the helper goes quiet.
+		const hung = setTimeout(() => reject(new Error("No frames from capture helper")), 8000);
+		frameReady.then(() => clearTimeout(hung), () => clearTimeout(hung));
+
+		const canvasEl = await frameReady;
+
+		// captureStream(fps) mirrors whatever we paint onto the canvas.
+		const stream = canvasEl.captureStream(10);
 		localStream = stream;
 
 		peerConnection = new RTCPeerConnection({
@@ -274,6 +297,10 @@ async function startStudentShare(teacherId) {
 }
 
 function stopShare() {
+	if (captureWs) {
+		try { captureWs.close(); } catch {}
+		captureWs = null;
+	}
 	if (localStream) {
 		localStream.getTracks().forEach((track) => track.stop());
 		localStream = null;

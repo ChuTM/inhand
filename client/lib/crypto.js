@@ -74,6 +74,48 @@ function encryptTo(encPub, obj) {
 	};
 }
 
+/**
+ * Generate the client identity keypair (Ed25519 sign + X25519 enc).
+ * The private halves stay on this machine (identity.json, mode 0600); the
+ * public enc half is registered with the teacher so the host can encrypt
+ * downlink secrets (e.g. the sudo password) back to this client only.
+ */
+function generateKeyPair() {
+	const b64 = (b) => b.toString("base64");
+	const sign = crypto.generateKeyPairSync("ed25519");
+	const enc = crypto.generateKeyPairSync("x25519");
+	return {
+		signPub: b64(sign.publicKey.export({ type: "spki", format: "der" })),
+		signPriv: b64(sign.privateKey.export({ type: "pkcs8", format: "der" })),
+		encPub: b64(enc.publicKey.export({ type: "spki", format: "der" })),
+		encPriv: b64(enc.privateKey.export({ type: "pkcs8", format: "der" })),
+	};
+}
+
+/** Decrypt an ECIES envelope (v1) with this client's private enc key. */
+function decryptFrom(encPrivB64, env) {
+	if (!env || env.v !== 1) throw new Error("Unsupported ECIES envelope");
+	const priv = crypto.createPrivateKey({
+		key: Buffer.from(String(encPrivB64), "base64"),
+		type: "pkcs8",
+		format: "der",
+	});
+	const pub = crypto.createPublicKey({
+		key: Buffer.from(String(env.ephPub), "base64"),
+		type: "spki",
+		format: "der",
+	});
+	const secret = crypto.diffieHellman({ privateKey: priv, publicKey: pub });
+	const key = crypto.hkdfSync("sha256", secret, Buffer.from(String(env.salt), "base64"), HKDF_INFO, 32);
+	const decipher = crypto.createDecipheriv("aes-256-gcm", key, Buffer.from(String(env.iv), "base64"));
+	decipher.setAuthTag(Buffer.from(String(env.tag), "base64"));
+	const pt = Buffer.concat([
+		decipher.update(Buffer.from(String(env.ct), "base64")),
+		decipher.final(),
+	]);
+	return pt.toString("utf8");
+}
+
 /** Guard against replay: nonce + 120s window. */
 function createNonceGuard(windowMs = 120000) {
 	const seen = new Set();
@@ -101,5 +143,7 @@ module.exports = {
 	canonicalize,
 	verifyPayload,
 	encryptTo,
+	decryptFrom,
+	generateKeyPair,
 	createNonceGuard,
 };

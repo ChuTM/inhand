@@ -46,7 +46,7 @@ A student client can never be tricked into running a modified binary, whether th
 
 ## 6. Minimal privileges on student devices
 
-The student client is installed **per user** (`~/Library/Application Support/InHand/`) with no root daemon and no world-writable directories. Screen Recording permission is requested once and is required only so the teacher can view the screen during a lesson — you can revoke it in System Settings at any time.
+The student client's **main app** is installed **per user** (`~/Library/Application Support/InHand/`) with no root daemon and no world-writable directories. Two optional helpers are installed **root-owned** under `/Library/Application Support/InHand/` — the **Capture** screen-recording helper and the **firewall** daemon — which students cannot remove. Screen Recording permission is requested once (to the Capture helper) and is required only so the teacher can view the screen during a lesson; you can revoke it in System Settings at any time. Because updates default to replacing **only the main app** (`install.sh -v`), the helpers' one-time grants are never reset by updates.
 
 ## 7. Where your data lives
 

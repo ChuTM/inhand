@@ -25,6 +25,14 @@ import {
 	decryptFrom,
 } from "./lib/crypto.mjs";
 import { initAudit, audit } from "./lib/audit.mjs";
+import {
+	initPasswordBook,
+	loadPasswordBook,
+	savePasswordBook,
+	parsePasswordBookText,
+	serializePasswordBook,
+} from "./lib/passwordbook.mjs";
+import { encryptTo } from "./lib/crypto.mjs";
 
 import "dotenv/config"; // Testing
 
@@ -111,6 +119,7 @@ const settings = {
 // ---------------------------------------------------------------------------
 initAudit(DATA_RES_PATH);
 keyring.initKeystore(DATA_RES_PATH);
+initPasswordBook(DATA_RES_PATH);
 
 if (DEV_MODE && !keyring.keyringExists()) {
 	keyring.setup("dev-password", "Dev School", "");
@@ -119,6 +128,9 @@ if (DEV_MODE && !keyring.keyringExists()) {
 
 let deviceHistory = [];
 const activeUsers = new Map();
+// socket.id -> { hostname, encPub, name } — lets the host encrypt secrets back
+// to a specific client and match it against the password book.
+const clientInfo = new Map();
 // name -> last time the history file was written (heartbeat refresh throttle)
 const historySavedAt = new Map();
 
@@ -239,6 +251,10 @@ expressApp.use("/api", restrictToLocalhost);
 
 expressApp.get("/admin", (req, res) => {
 	res.sendFile(path.join(STATIC_RES_PATH, "admin.html"));
+});
+
+expressApp.get("/password-book", restrictToLocalhost, (req, res) => {
+	res.sendFile(path.join(STATIC_RES_PATH, "password-book.html"));
 });
 
 expressApp.get("/api/status", (req, res) => {
@@ -542,7 +558,36 @@ io.on("connection", (socket) => {
 	if (DEV_MODE) {
 		socket.onAny((ev) => console.log(`[dev:socket:${socket.id}] ${ev}`));
 	}
-	safeOn(socket, "disconnect", () => audit("socket-disconnect", { id: socket.id }));
+	safeOn(socket, "disconnect", () => {
+		clientInfo.delete(socket.id);
+		audit("socket-disconnect", { id: socket.id });
+	});
+
+	safeOn(socket, "credential-request", (payload) => {
+		// A client asks for its admin password from the teacher's password book.
+		// Reply is signed (teacher) + ECIES-encrypted to that client's identity.
+		const info = clientInfo.get(socket.id) || {};
+		const hostname = String(payload?.hostname || info.hostname || "");
+		const encPub = info.encPub || payload?.encPub;
+		if (!hostname || !encPub) {
+			audit("credential-no-match", { hostname });
+			return;
+		}
+		if (!keyring.isUnlocked()) {
+			audit("credential-keyring-locked", {});
+			return;
+		}
+		const entries = loadPasswordBook(keyring.getPassword());
+		const password = entries[hostname];
+		if (!password) {
+			audit("credential-not-in-book", { hostname });
+			return;
+		}
+		const enc = encryptTo(encPub, JSON.stringify({ password }));
+		const env = makeSignedEnvelope("credential-ack", { hostname });
+		audit("credential-sent", { hostname });
+		socket.emit("credential-ack", { ...env, enc });
+	});
 
 	safeOn(socket, "register-mac", (payload) => {
 		try {
@@ -551,6 +596,11 @@ io.on("connection", (socket) => {
 			const data = JSON.parse(decryptFrom(encPriv, payload.enc));
 			const macUsername = String(data.name || "");
 			if (!macUsername) return;
+			clientInfo.set(socket.id, {
+				hostname: String(data.hostname || ""),
+				encPub: typeof data.encPub === "string" ? data.encPub : null,
+				name: macUsername,
+			});
 			// Push the current teacher keys on every registration/heartbeat so a
 			// rotated key reaches clients over the LAN even while the internet is
 			// cut (LAN-only lock). The client re-pushes it to its firewall daemon.
@@ -780,6 +830,17 @@ server.listen(PORT, "::", () => {
 // ---------------------------------------------------------------------------
 // IPC (admin renderer <-> main). The private key never leaves this process.
 // ---------------------------------------------------------------------------
+// SF Symbols for the admin UI (real macOS symbols via Electron 44+).
+ipcMain.handle("SF_SYMBOL", (_event, name) => {
+	try {
+		const img = nativeImage.createMenuSymbol(String(name));
+		if (img && !img.isEmpty()) return img.toDataURL();
+	} catch (e) {
+		/* older Electron — renderer keeps lucide fallback */
+	}
+	return null;
+});
+
 ipcMain.handle("GET_SCREEN_SOURCES", async () => {
 	const sources = await desktopCapturer.getSources({
 		types: ["screen", "window"],
@@ -849,6 +910,29 @@ ipcMain.handle("UNLOCK", (_event, { password }) => {
 		return { ok: true };
 	} catch (err) {
 		audit("unlock-failed", { message: err.message });
+		return { ok: false, error: err.message };
+	}
+});
+
+// Password book (encrypted at rest with the in-memory unlock password).
+ipcMain.handle("GET_PASSWORD_BOOK", () => {
+	try {
+		if (!keyring.isUnlocked()) return { ok: false, error: "Keyring locked" };
+		const entries = loadPasswordBook(keyring.getPassword());
+		return { ok: true, entries, text: serializePasswordBook(entries) };
+	} catch (err) {
+		return { ok: false, error: err.message };
+	}
+});
+
+ipcMain.handle("SAVE_PASSWORD_BOOK", (_event, { text }) => {
+	try {
+		if (!keyring.isUnlocked()) return { ok: false, error: "Keyring locked" };
+		const entries = parsePasswordBookText(text || "");
+		const saved = savePasswordBook(entries, keyring.getPassword());
+		audit("password-book-saved", { count: Object.keys(saved).length });
+		return { ok: true, entries: saved, text: serializePasswordBook(saved) };
+	} catch (err) {
 		return { ok: false, error: err.message };
 	}
 });

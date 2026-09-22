@@ -1,19 +1,37 @@
 #!/bin/zsh
 
 # =============================================================================
-#  InHand — STUDENT CLIENT installer (macOS)
+#  InHand — STUDENT CLIENT installer / updater (macOS)
 #
 #  IMPORTANT: install.sh is for the STUDENT CLIENT ONLY.
 #             Do NOT run this script on the teacher's (host) machine.
 #
+#  Components on a student machine:
+#    - Main app   (InHand Student.app, user dir)     — UI-less, updates often
+#    - Capture    (InHand Capture.app, /Library)     — screen capture helper,
+#                                                      holds the Screen Recording
+#                                                      grant; updates rarely
+#    - Firewall   (com.inhand.fw daemon, /Library)   — LAN-only helper, root;
+#                                                      updates rarely
+#
+#  UPDATE POLICY (important):
+#    The default `-v/--update` only replaces the MAIN APP, so the Capture and
+#    Firewall helpers (and their one-time macOS permissions) are NEVER touched.
+#    Use --scope to opt into updating helpers explicitly:
+#      --scope=fw           only the firewall helper
+#      --scope=capture      only the capture helper
+#      --scope=fw-capture   capture + firewall
+#      --scope=all          everything (main app + capture + firewall)
+#
 #  Security notes:
-#    - Installs into ~/Library/Application Support/InHand (no sudo,
-#      no world-writable directory).
+#    - Main app installs into ~/Library/Application Support/InHand (no sudo).
+#    - Capture + Firewall live under /Library/Application Support/InHand,
+#      owned by root, so a student cannot remove them.
 #    - Auto-start uses a per-user LaunchAgent (no root privileges needed).
-#    - Optional LAN-only firewall helper (flag -f): installs ONE tiny root
-#      daemon + pf anchor via a single sudo prompt. See README.
-#    - The Screen Recording permission is required so the teacher can view
-#      this screen; the installer walks you through granting it.
+#    - The LAN-only firewall helper (flag -f / scope fw): installs ONE tiny
+#      root daemon + pf anchor via a single sudo prompt. See README.
+#    - The Screen Recording permission is granted ONCE to the Capture helper;
+#      the installer walks you through it on first install only.
 # =============================================================================
 
 # --- Defaults ---
@@ -22,6 +40,7 @@ MODE="install"
 URL_SPECIFIED=false
 IS_UPDATE=false
 FIREWALL=false
+SCOPE="app"
 
 INSTALL_DIR="$HOME/Library/Application Support/InHand"
 APP_NAME="InHand Student.app"
@@ -31,6 +50,38 @@ AGENT_LABEL="com.inhand.student"
 AGENT_PLIST="$HOME/Library/LaunchAgents/$AGENT_LABEL.plist"
 DMG_URL="https://github.com/ChuTM/inhand/releases/latest/download/InHand-arm64.dmg"
 FW_HELPER_BASE="https://ihinstall.web.app/firewall"
+CAPTURE_DIR="/Library/Application Support/InHand"
+CAPTURE_APP_NAME="InHand Capture.app"
+CAPTURE_APP_PATH="$CAPTURE_DIR/$CAPTURE_APP_NAME"
+CAPTURE_DMG_URL="https://github.com/ChuTM/inhand/releases/latest/download/InHand-Capture-arm64.dmg"
+INSTALL_HINT_CAPTURE='sudo curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- --scope=capture'
+
+usage() {
+  cat <<'EOF'
+Usage: bash install.sh [options]
+
+  -a, --api-url <url>   set the cloud API base URL
+                        (default https://inhand-server.vercel.app)
+  -f, --firewall        also install/update the LAN-only firewall helper
+  -u, --uninstall       uninstall the student client (app + capture + firewall)
+  -v, --update          update the client
+
+Update scope (with -v). DEFAULT = main app only, helpers are never touched:
+      --scope=fw           only the firewall helper
+      --scope=capture      only the capture helper
+      --scope=fw-capture   capture + firewall
+      --scope=all          everything (main app + capture + firewall)
+
+Examples:
+  bash install.sh                    first-time install (main app)
+  bash install.sh -f                 first-time install + firewall helper
+  bash install.sh -v                 update main app only  (safe default)
+  bash install.sh -v --scope=fw          update firewall helper only
+  bash install.sh -v --scope=capture     update capture helper only
+  bash install.sh -v --scope=fw-capture  update capture + firewall
+  bash install.sh -v --scope=all         update everything
+EOF
+}
 
 # --- Parse Flags ---
 while [[ $# -gt 0 ]]; do
@@ -52,13 +103,21 @@ while [[ $# -gt 0 ]]; do
       MODE="update"
       shift
       ;;
+    --scope=*)
+      SCOPE="${1#--scope=}"
+      shift
+      ;;
+    --scope)
+      SCOPE="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
     *)
       echo "[ERROR] Unknown option: $1"
-      echo "Usage: bash install.sh [-a https://your-api-server] [-f] [-u] [-v]"
-      echo "       -a/--api-url : set the cloud API base URL (default https://inhand-server.vercel.app)"
-      echo "       -f           : also install the LAN-only firewall helper (asks for admin once)"
-      echo "       -u           : uninstall the student client"
-      echo "       -v           : update the student client"
+      usage
       exit 1
       ;;
   esac
@@ -93,6 +152,10 @@ require_sudo() {
 # --- Helper Functions ---
 kill_app() {
   pkill -9 -f "InHand Student" 2>/dev/null
+}
+
+kill_capture() {
+  pkill -9 -f "InHand Capture" 2>/dev/null
 }
 
 unload_agent() {
@@ -189,6 +252,59 @@ uninstall_firewall_helper() {
   fi
 }
 
+# --- CAPTURE HELPER (screen capture, root-owned, holds the TCC grant) ---
+# Installed/updated ONLY via --scope=capture|fw-capture|all. Updating the main
+# app NEVER touches it, so the one-time Screen Recording grant stays valid.
+install_capture_helper() {
+  echo "[INFO] Installing/updating Capture helper (root-owned, $CAPTURE_APP_PATH)..."
+  require_sudo
+  local TMP="$TMPDIR/inhand-capture-install"
+  mkdir -p "$TMP"
+  local CAPTURE_DMG="$TMP/Capture-arm64.dmg"
+  curl -fsSL -o "$CAPTURE_DMG" "$CAPTURE_DMG_URL" || {
+    echo "[ERROR] Capture download failed: $CAPTURE_DMG_URL"
+    rm -rf "$TMP"
+    return 1
+  }
+  local ATTACH_OUT; ATTACH_OUT="$(hdiutil attach "$CAPTURE_DMG" -nobrowse 2>&1)"
+  local VOLUME; VOLUME="$(printf '%s\n' "$ATTACH_OUT" | grep -oE '/Volumes/[^[:space:]].*' | tail -1 | sed 's/[[:space:]]*$//')"
+  if [ -z "$VOLUME" ] || [ ! -d "$VOLUME" ]; then
+    echo "[ERROR] Could not mount Capture disk image."
+    rm -rf "$TMP"
+    return 1
+  fi
+  local APP_SRC; APP_SRC="$(find "$VOLUME" -maxdepth 1 -name '*.app' -print -quit 2>/dev/null)"
+  if [ -z "$APP_SRC" ] || [ ! -d "$APP_SRC" ]; then
+    echo "[ERROR] InHand Capture.app not found in the mounted volume."
+    hdiutil detach "$VOLUME" 2>/dev/null
+    rm -rf "$TMP"
+    return 1
+  fi
+  kill_capture
+  sudo /bin/zsh -c '
+    set -e
+    CAP_DIR="/Library/Application Support/InHand"
+    mkdir -p "$CAP_DIR" && chmod 755 "$CAP_DIR"
+    rm -rf "$CAP_DIR/InHand Capture.app"
+    cp -R "$1" "$CAP_DIR/InHand Capture.app"
+    chmod -R 755 "$CAP_DIR/InHand Capture.app"
+    xattr -dr com.apple.quarantine "$CAP_DIR/InHand Capture.app" 2>/dev/null || true
+    echo "[OK] Capture helper installed at $CAP_DIR/InHand Capture.app"
+  ' _ "$APP_SRC" || { hdiutil detach "$VOLUME" 2>/dev/null; rm -rf "$TMP"; return 1; }
+  hdiutil detach "$VOLUME" 2>/dev/null
+  rm -rf "$TMP"
+  echo "[INFO] Capture helper updated. If this is the FIRST install, grant Screen"
+  echo "      Recording to \"InHand Capture\" in System Settings once."
+}
+
+uninstall_capture_helper() {
+  if [ -d "$CAPTURE_APP_PATH" ]; then
+    echo "[INFO] Removing Capture helper (asks for admin ONCE)..."
+    kill_capture
+    sudo rm -rf "$CAPTURE_APP_PATH"
+  fi
+}
+
 # --- Persist the cloud API URL ---
 write_api_url() {
   local PROFILE="$HOME/.zshrc"
@@ -206,37 +322,30 @@ write_api_url() {
   fi
 }
 
-# --- UPDATE MODE ---
-if [ "$MODE" = "update" ]; then
-  echo "[INFO] Starting application update sequence..."
-  IS_UPDATE=true
-  kill_app
-  unload_agent
-  MODE="install"
-fi
-
-# --- INSTALL MODE ---
-if [ "$MODE" = "install" ]; then
+# --- DOWNLOAD & REPLACE MAIN APP (user-level, no sudo) ---
+# Used by both first-time install and app-only update. Never touches the
+# Capture/Firewall helpers and never re-prompts for Screen Recording.
+install_main_app() {
   require_sudo
   mkdir -p "$INSTALL_DIR"
 
   echo "[INFO] Downloading InHand..."
-  INSTALL_TMP="$(mktemp -d "${TMPDIR:-/tmp}/inhand-install.XXXXXX")"
-  DMG_FILE="$INSTALL_TMP/InHand-arm64.dmg"
+  local INSTALL_TMP; INSTALL_TMP="$(mktemp -d "${TMPDIR:-/tmp}/inhand-install.XXXXXX")"
+  local DMG_FILE="$INSTALL_TMP/InHand-arm64.dmg"
   curl -fsSL -o "$DMG_FILE" "$DMG_URL" || {
     echo "[ERROR] Download failed: $DMG_URL"
     rm -rf "$INSTALL_TMP"
     exit 1
   }
-  ATTACH_OUT="$(hdiutil attach "$DMG_FILE" -nobrowse 2>&1)"
-  ATTACH_RC=$?
+  local ATTACH_OUT; ATTACH_OUT="$(hdiutil attach "$DMG_FILE" -nobrowse 2>&1)"
+  local ATTACH_RC=$?
   if [ $ATTACH_RC -ne 0 ]; then
     echo "[ERROR] Failed to mount the disk image. hdiutil said:"
     printf '%s\n' "$ATTACH_OUT" | sed 's/^/       /'
     rm -rf "$INSTALL_TMP"
     exit 1
   fi
-  VOLUME="$(printf '%s\n' "$ATTACH_OUT" | grep -oE '/Volumes/[^[:space:]].*' | tail -1 | sed 's/[[:space:]]*$//')"
+  local VOLUME; VOLUME="$(printf '%s\n' "$ATTACH_OUT" | grep -oE '/Volumes/[^[:space:]].*' | tail -1 | sed 's/[[:space:]]*$//')"
   if [ -z "$VOLUME" ] || [ ! -d "$VOLUME" ]; then
     echo "[ERROR] Could not locate the mounted InHand volume."
     echo "       hdiutil output was:"
@@ -247,7 +356,7 @@ if [ "$MODE" = "install" ]; then
   echo "[INFO] Mounted at: $VOLUME"
 
   echo "[INFO] Copying service files (user-level, no sudo)..."
-  APP_SRC="$(find "$VOLUME" -maxdepth 1 -name '*.app' -print -quit 2>/dev/null)"
+  local APP_SRC; APP_SRC="$(find "$VOLUME" -maxdepth 1 -name '*.app' -print -quit 2>/dev/null)"
   if [ -z "$APP_SRC" ] || [ ! -d "$APP_SRC" ]; then
     echo "[ERROR] InHand Student.app not found in the mounted volume."
     hdiutil detach "$VOLUME" 2>/dev/null
@@ -266,18 +375,88 @@ if [ "$MODE" = "install" ]; then
     write_api_url
   fi
 
-  # Start the app once so macOS registers it for Screen Recording permission
+  echo "[INFO] Cleaning up installer files..."
+  hdiutil detach "$VOLUME" 2>/dev/null
+  rm -rf "$INSTALL_TMP"
+
+  install_launch_agent
+}
+
+# --- UPDATE MODE ---
+# Default scope is "app": only the main app is replaced; Capture and Firewall
+# helpers (and their one-time permissions) are left untouched. Opt into helper
+# updates with --scope=fw|capture|fw-capture|all.
+if [ "$MODE" = "update" ]; then
+  case "$SCOPE" in
+    app|fw|capture|fw-capture|all) : ;;
+    *)
+      echo "[ERROR] Unknown --scope=$SCOPE (expected: app, fw, capture, fw-capture, all)"
+      exit 1
+      ;;
+  esac
+  echo "[INFO] Update scope: $SCOPE"
+
+  # --- Main app only (default) ---
+  if [ "$SCOPE" = "app" ] || [ "$SCOPE" = "all" ]; then
+    echo "[INFO] Updating main app only — Capture & Firewall helpers untouched..."
+    IS_UPDATE=true
+    kill_app
+    unload_agent
+    install_main_app
+    echo "[INFO] Restarting the app..."
+    open "$APP_PATH"
+  fi
+
+  # --- Firewall helper only ---
+  if [ "$SCOPE" = "fw" ] || [ "$SCOPE" = "fw-capture" ] || [ "$SCOPE" = "all" ]; then
+    echo "[INFO] Updating firewall helper (root daemon)..."
+    install_firewall_helper || { echo "[ERROR] Firewall helper update failed"; exit 1; }
+  fi
+
+  # --- Capture helper only ---
+  if [ "$SCOPE" = "capture" ] || [ "$SCOPE" = "fw-capture" ] || [ "$SCOPE" = "all" ]; then
+    echo "[INFO] Updating capture helper (root-owned)..."
+    install_capture_helper || { echo "[ERROR] Capture helper update failed"; exit 1; }
+  fi
+
+  echo ""
+  echo "[SUCCESS] InHand update complete (scope: $SCOPE)."
+  exit 0
+fi
+
+# --- INSTALL MODE (first-time) ---
+if [ "$MODE" = "install" ]; then
+  install_main_app
+
+  # --- Capture helper (root-owned, holds the Screen Recording grant) ---
+  # Installed on first install so the main app has a capture source. Root-owned
+  # under /Library so students cannot remove it; the one-time grant survives all
+  # main-app updates. Falls back gracefully if it cannot be installed.
+  CAPTURE_FAILED=false
+  echo ""
+  echo "[INFO] Installing Capture helper (root-owned, single admin prompt)..."
+  if install_capture_helper; then
+    echo "[INFO] Capture helper installed at $CAPTURE_APP_PATH"
+  else
+    CAPTURE_FAILED=true
+    echo "[WARN] Capture helper failed to install — screen sharing will not work until"
+    echo "       it is installed. Retry with: $INSTALL_HINT_CAPTURE"
+  fi
+
+  # Start the app once so macOS registers it
   open "$APP_PATH"
 
   # --- SCREEN RECORDING PERMISSION (required for the teacher to view this screen) ---
+  # On first install only. The grant goes to the Capture helper ("InHand Capture"),
+  # which is root-owned and updated almost never, so updates never reset it.
   echo ""
   echo "[INFO] Please grant the following macOS permission when prompted:"
   echo "       1. Screen Recording (required so the teacher can view this screen)"
   echo ""
   echo "[INFO] Opening System Settings -> Privacy & Security -> Screen Recording..."
   open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
-  echo "       In the list, enable \"InHand Student\"."
-  echo "       (If it is not listed yet, wait a moment for the app to register, then reopen the pane.)"
+  echo "       In the list, enable \"InHand Capture\"."
+  echo "       (If it is not listed yet, wait a moment for it to register, then reopen the pane.)"
   echo ""
   echo "Press ENTER once the permission is granted to continue..."
 
@@ -308,16 +487,10 @@ if [ "$MODE" = "install" ]; then
   if [ "$SIZE" -lt 10000 ] 2>/dev/null; then
     echo "[WARN] Screen capture looks empty. Screen Recording may still be disabled."
     echo "       Reopen System Settings -> Privacy & Security -> Screen Recording"
-    echo "       and enable \"InHand Student\", then restart the app."
+    echo "       and enable \"InHand Capture\", then restart the app."
   else
     echo "[INFO] Screen capture check passed."
   fi
-
-  echo "[INFO] Cleaning up installer files..."
-  hdiutil detach "$VOLUME" 2>/dev/null
-  rm -rf "$INSTALL_TMP"
-
-  install_launch_agent
 
   # Optional: LAN-only firewall helper (single sudo prompt)
   if [ "$FIREWALL" = true ]; then
@@ -328,6 +501,12 @@ if [ "$MODE" = "install" ]; then
   echo "[SUCCESS] InHand STUDENT CLIENT is now installed and active."
   echo "          Install directory: $INSTALL_DIR"
   echo "          Auto-start: LaunchAgent ($AGENT_LABEL) — no root needed."
+  if [ "$CAPTURE_FAILED" = true ]; then
+    echo "          Capture helper: FAILED to install — rerun with --scope=capture,"
+    echo "          or check the error above. Screen sharing will not work until fixed."
+  else
+    echo "          Capture helper: installed (root-owned InHand Capture.app)."
+  fi
   if [ "$FIREWALL" = true ]; then
     if [ "$FW_FAILED" = true ]; then
       echo "          LAN-only firewall helper: FAILED to install — rerun with -f,"
@@ -347,6 +526,7 @@ fi
 if [ "$MODE" = "uninstall" ]; then
   require_sudo
   kill_and_clean_app
+  uninstall_capture_helper
   uninstall_firewall_helper
   echo "[SUCCESS] InHand student client uninstalled."
 fi

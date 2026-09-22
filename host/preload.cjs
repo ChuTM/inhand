@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("electronAPI", {
 	// Screen sources (admin dashboard)
 	getScreenSources: () => ipcRenderer.invoke("GET_SCREEN_SOURCES"),
+	sfSymbol: (name) => ipcRenderer.invoke("SF_SYMBOL", name),
 	handleDoubleClick: () => ipcRenderer.send("window-handle-double-click"),
 
 	// Share windows
@@ -32,4 +33,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
 	// Open a "view student" window (main mints a one-time viewer token)
 	createViewWindow: (studentId, socketId) =>
 		ipcRenderer.send("CREATE_VIEW_WINDOW", { studentId, socketId }),
+
+	// Password book (encrypted at rest with the unlock password)
+	getPasswordBook: () => ipcRenderer.invoke("GET_PASSWORD_BOOK"),
+	savePasswordBook: (text) => ipcRenderer.invoke("SAVE_PASSWORD_BOOK", { text }),
 });

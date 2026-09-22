@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("electronAPI", {
 	getScreenSources: () => ipcRenderer.invoke("GET_SCREEN_SOURCES"),
+	ensureCaptureHelper: () => ipcRenderer.invoke("ENSURE_CAPTURE_HELPER"),
 	setAlwaysOnTop: (flag) => ipcRenderer.send("SET_ALWAYS_ON_TOP", flag),
 	onStopShare: (callback) =>
 		ipcRenderer.on("stop-share", () => callback()),

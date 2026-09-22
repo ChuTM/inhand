@@ -8,7 +8,13 @@ It consists of two apps:
   connected device, broadcasts the teacher's screen to all students, and lets
   the teacher view any student's screen.
 - **Client (Student)** — a lightweight background utility on each student Mac
-  that enforces the wallpaper and participates in screen sharing.
+  that enforces the wallpaper and participates in screen sharing. It is split
+  into three components so updates never reset one-time permissions:
+  - **Main app** (`InHand Student.app`, user dir) — UI-less, updated freely.
+  - **Capture** (`InHand Capture.app`, `/Library`, root-owned) — screen
+    capture helper; holds the Screen Recording grant; updated almost never.
+  - **Firewall** (`com.inhand.fw` root daemon) — LAN-only helper; one admin
+    prompt at install; updated almost never.
 
 > [!NOTE]
 > **macOS is required.** The Host and Client communicate over the local network
@@ -26,6 +32,33 @@ It consists of two apps:
    (needed so the teacher can view this screen).
    This installer is for the **student client only** — teachers should not run
    it on their machine.
+
+**Updating — important:** `install.sh -v` **only updates the main app** by
+default. The Capture helper and the Firewall helper (both root-owned, and both
+holding one-time macOS grants) are **never touched** during an update, so their
+permissions are never reset. To update a helper explicitly, opt in with
+`--scope`:
+
+```bash
+curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -v                # main app only (default, safe)
+curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -v --scope=fw          # firewall helper only
+curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -v --scope=capture     # capture helper only
+curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -v --scope=fw-capture  # capture + firewall
+curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -v --scope=all         # everything
+```
+
+> Why: macOS records permissions (Screen Recording, etc.) against the app's
+> signature identity. Replacing an unsigned app resets that grant. Splitting
+> screen capture (and the firewall) into root-owned helpers that are updated
+> almost never keeps the one-time grants stable; the main app can be updated
+> freely.
+
+**Building the Capture helper:** `./scripts/package-capture.sh` stamps a stock
+`Electron.app` as `InHand Capture.app` (com.inhand.capture, LSUIElement),
+bundles `client/capture/`, and produces
+`client/capture/dist/InHand-Capture-arm64.dmg` — upload it as a GitHub release
+asset named exactly `InHand-Capture-arm64.dmg` so `install.sh --scope=capture`
+can fetch it.
 
 ### For Teachers (Host / Admin)
 
@@ -97,6 +130,7 @@ and command channels keep functioning, but web/cloud access is cut.
 ```
 1. Install the helper once per student machine (single admin prompt):
      curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -f
+   (Update it later with: `... | zsh -s -- -v --scope=fw`)
 2. In the teacher's admin panel (Commands) send:
      lan-only  { on: true,  ttl: 60 }   → lock (auto-release in 60 min)
      lan-only  { on: false }            → release
@@ -170,8 +204,10 @@ sudo sh /Library/Application Support/InHand/inhand-fwctl uninstall              
 /host      Teacher (Admin) Electron app — Express + Socket.io server on port
            7100, localhost-only admin dashboard, WebRTC share signaling.
 /client    Student Electron app — background service with a tray icon, wallpaper
-           enforcement, and screen-sharing windows.
-/website   Landing/download page plus install.sh (student client installer).
+           enforcement, and screen-sharing windows. Split: main app + Capture
+           helper (screen capture) + firewall helper (root daemon).
+/website   Landing/download page plus install.sh (student client installer
+           with scoped updates) and audit.sh (health/privilege audit).
 /tools     Cloud server (registration + discover + update signing). Runs
            locally (`tools/server/server.mjs`) or serverless on Vercel with
            Firebase Firestore (`api/` functions). See tools/server/README.md.
@@ -193,6 +229,9 @@ sudo sh /Library/Application Support/InHand/inhand-fwctl uninstall              
 - **Engine**: runs `osascript` to interact with macOS System Events
 - **Screen sharing**: share windows capture the screen (Screen Recording
   permission required) and stream it to the teacher when requested
+- **Capture helper** (split target): `InHand Capture.app` owns the screen
+  capture + the Screen Recording grant; the main app consumes the stream via
+  local IPC. Updating the main app never resets the grant.
 
 ## Development Installation & Setup
 

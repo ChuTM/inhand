@@ -121,6 +121,19 @@ header {
 	border-bottom: 1px solid var(--hairline);
 }
 
+.head-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.nav-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	text-decoration: none;
+}
+
 .header-logo {
 	height: 1.7rem;
 	border-radius: 6px;
@@ -1065,10 +1078,11 @@ tbody tr:hover {
 	user-select: none;
 }
 /* ===== Actions + collapsible Commands (added) ===== */
+/* App-icon style: colored squircle tile + white SF Symbol + status dot. */
 .actions-grid {
-	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-	gap: 12px;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 14px;
 	margin-bottom: 18px;
 }
 
@@ -1076,70 +1090,76 @@ tbody tr:hover {
 	position: relative;
 	display: flex;
 	flex-direction: column;
-	align-items: flex-start;
+	align-items: center;
 	gap: 8px;
-	padding: 16px 16px 14px;
-	background: rgba(255, 255, 255, 0.6);
-	border: 1px solid rgba(0, 0, 0, 0.08);
-	border-radius: var(--radius-md);
-	corner-shape: squircle;
+	padding: 0;
+	width: 92px;
+	background: transparent;
+	border: none;
 	cursor: pointer;
-	text-align: left;
+	text-align: center;
 	font-family: var(--font-system);
 	color: var(--fg);
-	transition:
-		border-color 0.2s ease,
-		background 0.2s ease,
-		box-shadow 0.2s ease,
-		transform 0.12s ease;
+	transition: transform 0.12s ease;
 }
-.action-card:hover {
-	background: rgba(255, 255, 255, 0.9);
-	border-color: rgba(0, 0, 0, 0.14);
-	box-shadow: 0 4px 18px rgba(0, 0, 0, 0.08);
+.action-card:hover .action-icon {
+	transform: scale(1.05);
+	box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
 }
-.action-card:active {
-	transform: scale(0.97);
+.action-card:active .action-icon {
+	transform: scale(0.94);
 }
 
 .action-icon {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	width: 34px;
-	height: 34px;
-	border-radius: 10px;
-	corner-shape: squircle;
-	background: rgba(228, 61, 48, 0.1);
-	color: var(--brand);
+	width: 56px;
+	height: 56px;
+	border-radius: 16px;
+	background: #0a84ff; /* fallback accent for future actions */
+	color: #fff;
+	overflow: hidden;
+	box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
+	transition:
+		transform 0.12s ease,
+		box-shadow 0.2s ease,
+		filter 0.25s ease;
+}
+/* LAN-Only = red */
+.action-card[data-action="lan-only"] .action-icon {
+	background: #ff3b30;
+}
+.action-card[data-action="lan-only"]:not(.is-locked) .action-icon {
+	filter: saturate(0.35) opacity(0.8);
 }
 .action-icon .lucide-icon {
-	width: 18px;
-	height: 18px;
+	width: 26px;
+	height: 26px;
 }
 
 .action-name {
-	font-size: 13.5px;
+	font-size: 12px;
 	font-weight: 600;
 	letter-spacing: -0.01em;
-}
-.action-state {
-	font-size: 11px;
-	font-weight: 600;
-	color: var(--fg-3);
-	letter-spacing: 0.02em;
+	color: var(--fg-2);
 }
 
-.action-card.is-locked {
-	border-color: rgba(228, 61, 48, 0.45);
-	background: rgba(228, 61, 48, 0.07);
-}
-.action-card.is-locked .action-icon {
-	background: var(--brand);
-	color: #fff;
+/* status dot — top-right of the tile */
+.action-state {
+	position: absolute;
+	top: 8px;
+	right: 22px;
+	width: 9px;
+	height: 9px;
+	border-radius: 50%;
+	background: #c7c7cc;
+	box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
+	font-size: 0;
 }
 .action-card.is-locked .action-state {
-	color: var(--brand);
+	background: #30d158;
+	box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9), 0 0 8px rgba(48, 209, 88, 0.7);
 }
 
 .action-card.sending .plane-wrap {

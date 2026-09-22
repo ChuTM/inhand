@@ -1,24 +1,32 @@
 #!/bin/sh
 # audit.sh — InHand Student health & privilege audit
 #
-# Tells a teacher (or the student) whether this machine still has the app, the
-# auto-start agent, the Screen Recording grant, and the LAN-only firewall
-# helper that InHand requires — i.e. whether the student removed or disabled
-# something. Every line prints [PASS] / [FAIL] / [ ?? ], then a summary.
+# Tells a teacher (or the student) whether this machine still has the main app,
+# the auto-start agent, the Screen Recording grant, the Capture helper, and the
+# LAN-only firewall helper that InHand requires — i.e. whether the student
+# removed or disabled something. Every line prints [PASS] / [FAIL] / [ ?? ],
+# then a summary.
+#
+# Component layout (see install.sh):
+#   - Main app:  ~/Library/Application Support/InHand/InHand Student.app
+#   - Capture:   /Library/Application Support/InHand/InHand Capture.app (root)
+#   - Firewall:  /Library/Application Support/InHand/* + com.inhand.fw daemon
 #
 # Usage:
 #   sh audit.sh             check only (no root needed)
 #   sh audit.sh -f          check + quick fixes; re-run with sudo for root fixes
 #
-# Root fixes (firewall helper reinstall) require: sudo sh audit.sh -f
+# Root fixes (helper reinstall) require: sudo sh audit.sh -f
 
 INHAND_DIR="/Library/Application Support/InHand"
 APP_DIR="$HOME/Library/Application Support/InHand"
 APP_BUNDLE="$APP_DIR/InHand Student.app"
+CAPTURE_BUNDLE="$INHAND_DIR/InHand Capture.app"
 LAUNCH_AGENT="$HOME/Library/LaunchAgents/com.inhand.student.plist"
 LAUNCH_DAEMON="/Library/LaunchDaemons/com.inhand.fw.plist"
 FW_DAEMON="com.inhand.fw"
 INSTALL_HINT='sudo curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -f'
+UPDATE_HINT='curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -v'
 
 pass=0; fail=0; unknown=0; faillist=""
 
@@ -72,14 +80,27 @@ else
 fi
 
 # ---- 4. Screen Recording permission ------------------------------------------
+# NOTE: once the Capture helper split ships, the grant belongs to
+# "InHand Capture" (root-owned, never updated) — the main app has no TCC grant.
 if command -v swift >/dev/null 2>&1; then
 	if swift -e 'import CoreGraphics; exit(CGPreflightScreenCaptureAccess() ? 0 : 1)' >/dev/null 2>&1; then
 		check screen-recording PASS "granted — teacher can view this screen"
 	else
-		check screen-recording FAIL "NOT granted — System Settings → Privacy & Security → Screen Recording → enable InHand Student, then quit & reopen the app"
+		check screen-recording FAIL "NOT granted — System Settings → Privacy & Security → Screen Recording → enable InHand Student (or InHand Capture), then quit & reopen the app"
 	fi
 else
 	check screen-recording UNKNOWN "swift not available, cannot probe TCC"
+fi
+
+# ---- 4b. Capture helper (root-owned screen capture) ---------------------------
+if [ -d "$CAPTURE_BUNDLE" ]; then
+	if codesign --verify --deep --strict "$CAPTURE_BUNDLE" >/dev/null 2>&1; then
+		check capture-installed PASS "found at $CAPTURE_BUNDLE (root-owned)"
+	else
+		check capture-installed PASS "present (unsigned/ad-hoc is expected) at $CAPTURE_BUNDLE"
+	fi
+else
+	check capture-installed UNKNOWN "not installed — Capture split not shipped on this build (main app still holds Screen Recording)"
 fi
 
 # ---- 5. Firewall helper files (LAN-only capability) --------------------------
@@ -127,7 +148,11 @@ if [ "$1" = "-f" ]; then
 	fi
 	# Open Screen Recording settings (grant itself cannot be automated)
 	open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture" >/dev/null 2>&1
-	echo "[fix] Screen Recording settings opened — enable InHand Student, then quit & reopen the app"
+	echo "[fix] Screen Recording settings opened — enable InHand Student (or InHand Capture), then quit & reopen the app"
+	# Reinstall the Capture helper if it exists as a release asset (root-only)
+	if [ "$(id -u)" = "0" ] && [ ! -d "$CAPTURE_BUNDLE" ]; then
+		echo "[fix] Capture helper missing — run: $UPDATE_HINT --scope=capture"
+	fi
 	# Root-only fixes
 	if [ "$(id -u)" = "0" ]; then
 		BUNDLE_HELPERS="$APP_DIR/InHand Student.app/Contents/Resources/helpers"

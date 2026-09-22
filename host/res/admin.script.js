@@ -98,6 +98,50 @@ async function loadCommandWhitelist() {
 // ---------------------------------------------------------------------------
 let fwState = { locked: false, since: null, deadline: null, ttlMinutes: null, keySet: false };
 
+// ---------------------------------------------------------------------------
+// SF Symbols: replace lucide icons with real macOS SF Symbols via main process.
+// Falls back to the lucide icon when the symbol is unavailable.
+// ---------------------------------------------------------------------------
+const LUCIDE_TO_SF = {
+	"book-lock": "lock.book",
+	"shield-check": "checkmark.shield",
+	monitor: "desktopcomputer",
+	"monitor-off": "xmark",
+	send: "airplane",
+	eye: "eye",
+};
+
+async function replaceIconsWithSfSymbols(root = document) {
+	// lucide replaces <i data-lucide> with <svg class="lucide lucide-<name> ...">,
+	// so match both the raw tag and the rendered svg.
+	const els = Array.from(root.querySelectorAll("i[data-lucide], svg.lucide-icon, svg[class*='lucide-']"));
+	let replaced = 0, skipped = 0;
+	await Promise.all(
+		els.map(async (el) => {
+			const cls = el.getAttribute("class") || "";
+			const name = el.dataset?.lucide || (cls.match(/lucide-([a-z0-9-]+)/) || [])[1];
+			const sfName = name && LUCIDE_TO_SF[name];
+			if (!sfName) { skipped++; return; }
+			try {
+				const url = await window.electronAPI?.sfSymbol?.(sfName);
+				if (url) {
+					replaced++;
+					const img = document.createElement("img");
+					img.src = url;
+					img.alt = "";
+					img.className = el.className;
+					img.style.cssText = "width:14px;height:14px;vertical-align:-3px;";
+					el.replaceWith(img);
+				} else { skipped++; }
+			} catch (e) {
+				skipped++;
+				/* keep lucide icon */
+			}
+		}),
+	);
+	console.log("[sf] replaced=" + replaced + " skipped=" + skipped);
+}
+
 function buildActionCards() {
 	const grid = document.getElementById("actions-grid");
 	if (!grid) return;
@@ -112,13 +156,14 @@ function buildActionCards() {
 		card.innerHTML = `
 			<span class="action-icon"><span class="plane-wrap"><i data-lucide="send" class="lucide-icon"></i></span></span>
 			<span class="action-name"></span>
-			<span class="action-state"></span>
+			<span class="action-state" role="status" aria-label="off"></span>
 		`;
 		card.querySelector(".action-name").textContent = def.label || type;
 		grid.appendChild(card);
 	}
 	if (window.lucide) {
 		lucide.createIcons({ attrs: { class: "lucide-icon", "stroke-width": 1.5 } });
+		replaceIconsWithSfSymbols();
 	}
 	updateActionStates();
 }
@@ -132,7 +177,7 @@ function updateActionStates() {
 		if (type === "lan-only") {
 			const locked = !!fwState.locked;
 			card.classList.toggle("is-locked", locked);
-			stateEl.textContent = locked ? "ON" : "OFF";
+			stateEl.setAttribute("aria-label", locked ? "ON" : "OFF");
 		}
 	}
 }
@@ -171,6 +216,21 @@ function renderCommandParams() {
 	if (!type || !commandWhitelist.commands[type]) return;
 	const def = commandWhitelist.commands[type];
 	for (const [key, spec] of Object.entries(def.params || {})) {
+		if (spec.type === "select" && Array.isArray(spec.options)) {
+			const sel = document.createElement("select");
+			sel.className = "cmd-param";
+			sel.dataset.key = key;
+			sel.dataset.type = "select";
+			for (const opt of spec.options) {
+				const o = document.createElement("option");
+				o.value = opt;
+				o.textContent = opt;
+				if (spec.default && opt === spec.default) o.selected = true;
+				sel.appendChild(o);
+			}
+			paramsBox.appendChild(sel);
+			continue;
+		}
 		const input = document.createElement("input");
 		input.className = "cmd-param";
 		input.dataset.key = key;
@@ -348,6 +408,7 @@ async function startScreenShare() {
 		lucide.createIcons({
 			attrs: { class: "lucide-icon", "stroke-width": 1.5 },
 		});
+		replaceIconsWithSfSymbols();
 	} catch (err) {
 		console.error("Failed to start screen share:", err);
 		alert("Failed to start screen sharing: " + err.message);
@@ -377,6 +438,7 @@ async function stopScreenShare() {
 	lucide.createIcons({
 		attrs: { class: "lucide-icon", "stroke-width": 1.5 },
 	});
+		replaceIconsWithSfSymbols();
 }
 
 // A student share window asks to receive the teacher's broadcast.
@@ -543,6 +605,7 @@ async function fetchStatus() {
 			lucide.createIcons({
 				attrs: { class: 'lucide-icon', 'stroke-width': 1.5 }
 			});
+		replaceIconsWithSfSymbols();
 		}
 	} catch (err) {
 		console.error("Failed to fetch status:", err);

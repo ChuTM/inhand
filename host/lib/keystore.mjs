@@ -13,6 +13,7 @@ let keysDir = null;
 let keyringPath = null;
 
 let unlockedPriv = null; // { signPriv, encPriv } — main-process memory only
+let unlockedPassword = null; // cached in memory for the password book (user-confirmed)
 let pubs = null; // { signPub, encPub }
 let settings = {}; // { schoolName, registrationToken, apiUrl }
 
@@ -63,6 +64,7 @@ export function setup(password, schoolName, registrationToken) {
 	});
 	pubs = { signPub: keys.signPub, encPub: keys.encPub };
 	unlockedPriv = { signPriv: keys.signPriv, encPriv: keys.encPriv };
+	unlockedPassword = password;
 	settings = {
 		schoolName: schoolName || "",
 		registrationToken: registrationToken || "",
@@ -76,12 +78,19 @@ export function unlock(password) {
 	const blob = JSON.parse(fs.readFileSync(keyringPath, "utf8"));
 	const priv = unwrapPrivateKeys(blob, password); // throws on wrong password
 	unlockedPriv = priv;
+	unlockedPassword = password;
 	pubs = { ...blob.pub };
 	return { pubs: { ...pubs }, settings: { ...settings } };
 }
 
 export function lock() {
 	unlockedPriv = null;
+	unlockedPassword = null;
+}
+
+/** In-memory master password (set at unlock) used to encrypt the password book. */
+export function getPassword() {
+	return unlockedPassword;
 }
 
 /** Rotate: generate a new keypair, re-wrap with the SAME password. */

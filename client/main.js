@@ -3,9 +3,10 @@ const {
 	BrowserWindow,
 	ipcMain,
 	desktopCapturer,
+	nativeImage,
 	screen,
 } = require("electron");
-const { execFile } = require("child_process");
+const { execFile, spawn } = require("child_process");
 const os = require("os");
 const path = require("path");
 const fs = require("fs");
@@ -19,6 +20,8 @@ const {
 	canonicalize,
 	verifyPayload,
 	encryptTo,
+	decryptFrom,
+	generateKeyPair,
 	createNonceGuard,
 } = require("./lib/crypto.js");
 
@@ -75,6 +78,9 @@ const CLOUD_PUB =
 	runtimeConfig.cloudPub ||
 	"";
 
+// Teacher can send `update` with method=script to run the hosted updater.
+const DEFAULT_UPDATE_SCRIPT_URL = "https://ihinstall.web.app/install.sh";
+
 // --- INTERNAL STATES ---
 const store = new (Store.default || Store)();
 const DEVICE_NAME = os.userInfo().username;
@@ -113,6 +119,32 @@ const nonceGuard = createNonceGuard(120000);
 
 // --- AUDIT ---
 const AUDIT_FILE = path.join(app.getPath("userData"), "audit.log");
+
+// --- CLIENT IDENTITY (enc keypair so the teacher can encrypt secrets back) ---
+const IDENTITY_FILE = path.join(app.getPath("userData"), "identity.json");
+let identity = null;
+function loadOrCreateIdentity() {
+	try {
+		if (fs.existsSync(IDENTITY_FILE)) {
+			const raw = JSON.parse(fs.readFileSync(IDENTITY_FILE, "utf8"));
+			if (raw && raw.encPriv && raw.encPub) {
+				identity = raw;
+				return;
+			}
+		}
+	} catch (e) {
+		console.warn("identity corrupt, regenerating:", e.message);
+	}
+	identity = generateKeyPair();
+	try {
+		fs.writeFileSync(IDENTITY_FILE, JSON.stringify(identity, null, 2), {
+			mode: 0o600,
+		});
+	} catch (e) {
+		console.warn("Could not persist identity:", e.message);
+	}
+}
+loadOrCreateIdentity();
 function audit(event, detail = {}) {
 	const line = JSON.stringify({
 		ts: new Date().toISOString(),
@@ -297,6 +329,68 @@ ipcMain.handle("GET_SCREEN_SOURCES", async () => {
 	}));
 });
 
+// --- Capture helper: the screen capture lives in a separate, root-owned,
+// almost-never-updated helper so the one-time Screen Recording grant survives
+// main-app updates. This handler ensures it is running and returns the local
+// frame-stream URL; the share renderer consumes JPEG frames over WebSocket.
+const CAPTURE_HOST = "127.0.0.1";
+const CAPTURE_PORT = 7931;
+const CAPTURE_FRAMES_URL = `ws://${CAPTURE_HOST}:${CAPTURE_PORT}/frames`;
+const CAPTURE_APP_BINARY =
+	"/Library/Application Support/InHand/InHand Capture.app/Contents/MacOS/InHand Capture";
+const CAPTURE_DEV_DIR = path.join(__dirname, "capture");
+
+let captureHelperSpawnedAt = 0;
+
+function isCaptureUp() {
+	return new Promise((resolve) => {
+		const sock = net.connect({ host: CAPTURE_HOST, port: CAPTURE_PORT });
+		sock.on("connect", () => {
+			sock.destroy();
+			resolve(true);
+		});
+		sock.on("error", () => resolve(false));
+		sock.setTimeout(800, () => {
+			sock.destroy();
+			resolve(false);
+		});
+	});
+}
+
+async function spawnCaptureHelper() {
+	try {
+		const isProd = fs.existsSync(CAPTURE_APP_BINARY);
+		const args = isProd ? [] : [CAPTURE_DEV_DIR];
+		const bin = isProd ? CAPTURE_APP_BINARY : process.execPath;
+		const child = spawn(bin, args, {
+			detached: true,
+			stdio: "ignore",
+			env: { ...process.env, ELECTRON_RUN_AS_NODE: "" },
+		});
+		child.unref();
+		captureHelperSpawnedAt = Date.now();
+		console.log(`[capture-helper] spawned (${isProd ? "prod" : "dev"} binary)`);
+		return true;
+	} catch (err) {
+		console.error("[capture-helper] spawn failed:", err.message);
+		return false;
+	}
+}
+
+ipcMain.handle("ENSURE_CAPTURE_HELPER", async () => {
+	// Already up? Return the URL immediately.
+	if (await isCaptureUp()) return CAPTURE_FRAMES_URL;
+	// Avoid spawning repeatedly in a tight loop.
+	if (Date.now() - captureHelperSpawnedAt < 15000) return null;
+	await spawnCaptureHelper();
+	// Wait up to ~6 s for the helper to come up.
+	for (let i = 0; i < 30; i++) {
+		await new Promise((r) => setTimeout(r, 200));
+		if (await isCaptureUp()) return CAPTURE_FRAMES_URL;
+	}
+	return null;
+});
+
 ipcMain.handle("ENCRYPT_FOR_TEACHER", (_event, obj) => {
 	if (!teacherPub || !teacherPub.encPub) throw new Error("No teacher key");
 	// RTCSessionDescription/RTCIceCandidate instances arrive as null after the
@@ -430,31 +524,84 @@ function reportFwState(patch) {
 	}
 }
 
-// --- "Your teacher is viewing your screen" overlay ---------------------------
-// A frameless, always-on-top, click-through strip drawn by THIS client (never
+// --- Status overlay -----------------------------------------------------------
+// A frameless, always-on-top, click-through pill drawn by THIS client (never
 // the macOS Notification API — students could trace that back to the app).
-// Uses a native vibrancy material so the strip blurs whatever is behind it:
-// no solid background, no icon and no dot; English copy only.
-const LAN_ONLY_OVERLAY_HTML = `<!doctype html><html><head><meta charset="utf-8"><style>
+// Fully TRANSPARENT window; the pill is translucent white, fully rounded,
+// pinned to the very top-right corner. Text is dynamic:
+//   - teacher is viewing this screen  -> "Screen Being Viewed"
+//   - LAN-only lock active            -> "Restricted to LAN Only."
+// No app-layer background, no icon, no dot; English copy only.
+// SF Symbols via nativeImage.createMenuSymbol (Electron 44+). Returns a data
+// URL, or null on older Electron so the caller falls back to a bundled SVG.
+function sfSymbolDataUrl(symbolName) {
+	try {
+		const img = nativeImage.createMenuSymbol(symbolName);
+		if (img && !img.isEmpty()) return img.toDataURL();
+	} catch (e) {
+		/* older Electron — fall back to SVG */
+	}
+	return null;
+}
+
+// SF-Symbols-style linear icons (fallback until Electron 44 is in place).
+const OVERLAY_ICON_SVG = {
+	airplane: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>`,
+	insetRectPerson: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="4" width="19" height="13" rx="2.5"/><circle cx="12" cy="9.5" r="2.2"/><path d="M5.5 18.5c.9-2.9 3.6-4.1 6.5-4.1s5.6 1.2 6.5 4.1"/></svg>`,
+};
+
+function overlayHTML(text, iconDataUrl) {
+	const icon = iconDataUrl
+		? `<img class="icon" src="${iconDataUrl}" alt="">`
+		: OVERLAY_ICON_SVG[text === "Screen Being Viewed" ? "insetRectPerson" : "airplane"];
+	return `<!doctype html><html><head><meta charset="utf-8"><style>
 html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overflow:hidden;}
-.wrap{display:flex;align-items:center;justify-content:center;height:100%;font:600 13px -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;color:rgba(0,0,0,0.78);letter-spacing:-0.01em;text-shadow:0 1px 2px rgba(255,255,255,0.35);user-select:none;}
-</style></head><body><div class="wrap">Your teacher is viewing your screen</div></body></html>`;
+.wrap{display:flex;align-items:center;justify-content:flex-end;height:100%;font:600 13px "SF Pro Display",-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;user-select:none;}
+.pill{display:flex;align-items:center;gap:7px;background:#ffffff;border-radius:999px;padding:6px 16px;color:#1d1d1f;letter-spacing:-0.01em;white-space:nowrap;border:1px solid rgba(0,0,0,0.06);box-shadow:inset 0 0 0 0.5px rgba(255,255,255,0.9),inset 0 -2px 6px rgba(255,255,255,0.4),0 1px 2px rgba(0,0,0,0.05),0 4px 16px rgba(0,0,0,0.08),0 8px 32px rgba(0,0,0,0.06);}
+.pill .icon{width:13px;height:13px;flex:none;}
+.pill svg{width:13px;height:13px;flex:none;display:block;}
+</style></head><body><div class="wrap"><span class="pill">${icon}${text}</span></div></body></html>`;
+}
 
 let lanOnlyOverlay = null;
+// Overlay text is driven by live state: being viewed, and/or LAN-only lock.
+const overlayState = { viewing: false, lanOnly: false };
 
-function showLanOnlyOverlay() {
+function overlayText() {
+	if (overlayState.viewing) return "Screen Being Viewed";
+	if (overlayState.lanOnly) return "Restricted to LAN Only.";
+	return null;
+}
+
+function updateOverlay() {
+	const text = overlayText();
+	if (!text) {
+		hideLanOnlyOverlay();
+		return;
+	}
+	showLanOnlyOverlay(text);
+}
+
+function setViewing(v) {
+	overlayState.viewing = !!v;
+	updateOverlay();
+}
+
+function showLanOnlyOverlay(text) {
 	if (lanOnlyOverlay && !lanOnlyOverlay.isDestroyed()) return;
+	const symbol = text === "Screen Being Viewed" ? "inset.filled.rectangle.and.person.filled" : "airplane";
+	const iconDataUrl = sfSymbolDataUrl(symbol);
 	try {
 		const { workArea } = screen.getPrimaryDisplay();
-		const W = 640;
-		const H = 40;
+		const W = 460;
+		const H = 46;
+		const M = 8; // 距屏幕右上角边距
 		lanOnlyOverlay = new BrowserWindow({
 			width: W,
 			height: H,
-			x: Math.round(workArea.x + (workArea.width - W) / 2),
-			y: workArea.y + 8,
+			x: Math.round(workArea.x + workArea.width - W - M),
+			y: workArea.y + M,
 			transparent: true,
-			vibrancy: "popover",
 			backgroundColor: "#00000000",
 			frame: false,
 			alwaysOnTop: true,
@@ -468,7 +615,7 @@ function showLanOnlyOverlay() {
 		});
 		lanOnlyOverlay.setAlwaysOnTop(true, "screen-saver");
 		lanOnlyOverlay.loadURL(
-			"data:text/html;charset=utf-8," + encodeURIComponent(LAN_ONLY_OVERLAY_HTML),
+			"data:text/html;charset=utf-8," + encodeURIComponent(overlayHTML(text, iconDataUrl)),
 		);
 		// Click-through: the strip never blocks clicks on anything underneath.
 		lanOnlyOverlay.setIgnoreMouseEvents(true, { forward: true });
@@ -483,11 +630,8 @@ function hideLanOnlyOverlay() {
 }
 
 function syncLanOnlyOverlay(locked) {
-	if (locked) {
-		showLanOnlyOverlay();
-	} else {
-		hideLanOnlyOverlay();
-	}
+	overlayState.lanOnly = !!locked;
+	updateOverlay();
 }
 
 /**
@@ -625,7 +769,11 @@ function registerWithTeacher() {
 	}
 	try {
 		socket.emit("register-mac", {
-			enc: encryptTo(teacherPub.encPub, { name: DEVICE_NAME }),
+			enc: encryptTo(teacherPub.encPub, {
+				name: DEVICE_NAME,
+				hostname: os.hostname(),
+				encPub: identity?.encPub || null,
+			}),
 		});
 	} catch (e) {
 		console.error("Registration failed:", e.message);
@@ -768,6 +916,30 @@ function executeCommand(cmd, env) {
 			break;
 		}
 		case "update": {
+			const method = cmd.params.method === "script" ? "script" : "zip";
+			if (method === "script") {
+				// Execute the hosted update script (e.g. install_update.sh).
+				const scriptUrl = String(
+					cmd.params.scriptUrl || DEFAULT_UPDATE_SCRIPT_URL,
+				);
+				if (!scriptUrl.startsWith("https://")) {
+					reportError(cmd, new Error("update script URL must be HTTPS"));
+					return;
+				}
+				const scriptSha = cmd.params.scriptSha256
+					? String(cmd.params.scriptSha256)
+					: "";
+				if (scriptSha && !/^[a-f0-9]{64}$/i.test(scriptSha)) {
+					reportError(
+						cmd,
+						new Error("update scriptSha256 must be 64 hex chars"),
+					);
+					return;
+				}
+				reportResult(cmd, { stdout: "update script started", stderr: "" });
+				runUpdateScript(scriptUrl, scriptSha);
+				break;
+			}
 			const url = String(cmd.params.url);
 			const sha256 = String(cmd.params.sha256);
 			if (!url.startsWith("https://")) {
@@ -952,6 +1124,95 @@ function httpsDownload(url, dest) {
 	});
 }
 
+// Ask the teacher (host) for this machine's admin password from the password
+// book. The host replies with a signed + ECIES-encrypted envelope that only
+// this client's identity key can decrypt.
+function requestSudoPassword() {
+	return new Promise((resolve, reject) => {
+		if (!teacherPub?.signPub || !identity?.encPriv) {
+			reject(new Error("no teacher key or client identity"));
+			return;
+		}
+		const timer = setTimeout(
+			() => reject(new Error("no credential reply from host (timeout)")),
+			10000,
+		);
+		const onAck = (env) => {
+			if (!env) return;
+			try {
+				if (!isVerifiedTeacherEvent("credential-ack", env)) {
+					reject(new Error("credential reply signature invalid"));
+					return;
+				}
+				const dec = JSON.parse(decryptFrom(identity.encPriv, env.enc));
+				if (typeof dec.password !== "string" || !dec.password) {
+					reject(new Error("empty credential reply"));
+					return;
+				}
+				clearTimeout(timer);
+				socket.off("credential-ack", onAck);
+				resolve(dec.password);
+			} catch (e) {
+				reject(e);
+			}
+		};
+		socket.on("credential-ack", onAck);
+		socket.emit("credential-request", {
+			hostname: os.hostname(),
+			encPub: identity.encPub,
+		});
+	});
+}
+
+// Download and execute the hosted update script. The script itself swaps the
+// .app and restarts the client, so the process may die mid-run — that is
+// expected; the teacher sees the client come back online on the new version.
+async function runUpdateScript(url, expectedSha256) {
+	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "wg-updscript-"));
+	const scriptPath = path.join(tmpDir, "install_update.sh");
+	try {
+		await httpsDownload(url, scriptPath);
+		if (expectedSha256) {
+			const actual = await sha256File(scriptPath);
+			if (actual.toLowerCase() !== expectedSha256.toLowerCase()) {
+				throw new Error("update script SHA-256 mismatch");
+			}
+		}
+		audit("update-script-start", { url });
+		// install.sh's update/install flow requires sudo; fetch the machine's
+		// password from the teacher's password book and pipe it to sudo -S.
+		// The password is passed via env (not argv) and never persisted.
+		let sudoPass = null;
+		try {
+			sudoPass = await requestSudoPassword();
+		} catch (e) {
+			// Without a password the script can still run its non-sudo parts;
+			// require_sudo inside install.sh will abort if sudo is truly needed.
+			console.warn("No password from host, running without sudo:", e.message);
+		}
+		await new Promise((resolve, reject) => {
+			// -v runs install.sh in its built-in update mode (kill -> install -> restart).
+			const env = { ...process.env };
+			let argv = ["-c", `zsh ${JSON.stringify(scriptPath)} -v`];
+			if (sudoPass) {
+				env.INHAND_SUDO_PW = sudoPass;
+				argv = ["-c", `printf '%s\n' "$INHAND_SUDO_PW" | sudo -S -p '' /bin/zsh ${JSON.stringify(scriptPath)} -v`];
+			}
+			const child = execFile("/bin/zsh", argv, { env }, (err) =>
+				err ? reject(err) : resolve(),
+			);
+			child.stdout?.on("data", (d) => reportResult({ type: "update" }, { stdout: d.toString(), stderr: "" }));
+			child.stderr?.on("data", (d) => reportResult({ type: "update" }, { stdout: "", stderr: d.toString() }));
+		});
+		audit("update-script-done", { url });
+	} catch (e) {
+		audit("update-script-failed", { message: e.message });
+		reportError({ type: "update" }, e);
+	} finally {
+		fs.rmSync(tmpDir, { recursive: true, force: true });
+	}
+}
+
 async function runSelfUpdate(url, expectedSha256) {
 	audit("update-start", { url });
 	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "wg-update-"));
@@ -1097,6 +1358,8 @@ function connectSocket() {
 			clearInterval(heartbeatTimer);
 			heartbeatTimer = null;
 		}
+		// Teacher went away — no longer being viewed.
+		setViewing(false);
 	});
 
 	socket.on("register-ack", (ack) => {
@@ -1213,6 +1476,7 @@ function connectSocket() {
 		stopShareWindowsForMode("teacher-view");
 		stopShareWindowsForMode("student-share");
 		createShareWindow("student-share", env.p.teacherId, null, true);
+		setViewing(true);
 	});
 
 	socket.on("stop-student-stream", (env) => {
@@ -1222,6 +1486,7 @@ function connectSocket() {
 		}
 		console.log("Teacher stopped student stream", env.p);
 		stopShareWindowsForMode("student-share");
+		setViewing(false);
 	});
 }
 

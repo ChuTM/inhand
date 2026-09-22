@@ -1,70 +1,90 @@
 {
-	"version": 1,
-	"description": "Whitelist of commands the teacher may send to clients. To add or remove commands, edit this file and release an update — the update pipeline distributes the new whitelist to every client.",
-	"commands": {
-		"wallpaper": {
-			"description": "Set the enforced wallpaper path on every client.",
-			"params": {
-				"path": {
-					"type": "string",
-					"required": true
-				}
-			}
-		},
-		"configMode": {
-			"description": "Toggle the wallpaper guard on every client: on = enforce the locked wallpaper (default), off = let students change their wallpaper again.",
-			"params": {
-				"on": {
-					"type": "boolean",
-					"required": true
-				}
-			}
-		},
-		"lan-only": {
-			"description": "Cut external (internet) access — LAN-only mode. Requires the firewall helper installed via install.sh -f. Release with on=false.",
-			"params": {
-				"on": {
-					"type": "boolean",
-					"required": true
-				},
-				"ttl": {
-					"type": "number",
-					"required": false,
-					"hint": "Auto-release minutes (1-1440, default 60)"
-				}
-			},
-			"favorite": true
-		},
-		"fw-status": {
-			"description": "Query the client's firewall lock state (requires the firewall helper).",
-			"params": {}
-		},
-		"update": {
-			"description": "Update every client to a new version (URL must be HTTPS, SHA-256 required).",
-			"params": {
-				"url": {
-					"type": "string",
-					"required": true
-				},
-				"sha256": {
-					"type": "string",
-					"required": true
-				}
-			}
-		},
-		"restart": {
-			"description": "Restart the client service.",
-			"params": {}
-		},
-		"audit": {
-			"description": "Run a health & privilege audit on every client (app installed/signed, auto-start, Screen Recording, firewall helper) — one [PASS]/[FAIL] line per check.",
-			"params": {
-				"fix": {
-					"type": "boolean",
-					"required": false,
-					"hint": "true = attempt quick fixes (re-register launch agent, open Screen Recording settings, reinstall firewall helper)"
-				}
-			}
-		}
-	}
+  "version": 1,
+  "description": "Whitelist of commands the teacher may send to clients. To add or remove commands, edit this file and release an update — the update pipeline distributes the new whitelist to every client.",
+  "commands": {
+    "wallpaper": {
+      "description": "Set the enforced wallpaper path on every client.",
+      "params": {
+        "path": {
+          "type": "string",
+          "required": true
+        }
+      }
+    },
+    "configMode": {
+      "description": "Toggle the wallpaper guard on every client: on = enforce the locked wallpaper (default), off = let students change their wallpaper again.",
+      "params": {
+        "on": {
+          "type": "boolean",
+          "required": true
+        }
+      }
+    },
+    "lan-only": {
+      "description": "Cut external (internet) access — LAN-only mode. Requires the firewall helper installed via install.sh -f. Release with on=false.",
+      "params": {
+        "on": {
+          "type": "boolean",
+          "required": true
+        },
+        "ttl": {
+          "type": "number",
+          "required": false,
+          "hint": "Auto-release minutes (1-1440, default 60)"
+        }
+      },
+      "favorite": true
+    },
+    "fw-status": {
+      "description": "Query the client's firewall lock state (requires the firewall helper).",
+      "params": {}
+    },
+    "update": {
+      "description": "Update every client to a new version (URL must be HTTPS, SHA-256 required).",
+      "params": {
+        "url": {
+          "type": "string",
+          "required": false
+        },
+        "sha256": {
+          "type": "string",
+          "required": false
+        },
+        "method": {
+          "type": "select",
+          "options": [
+            "zip",
+            "script"
+          ],
+          "default": "zip",
+          "required": false,
+          "description": "zip = download new build and swap (url/sha256 required); script = run the hosted install.sh in update mode (-v)"
+        },
+        "scriptUrl": {
+          "type": "string",
+          "required": false,
+          "description": "HTTPS URL of the install script (default https://ihinstall.web.app/install.sh)"
+        },
+        "scriptSha256": {
+          "type": "string",
+          "required": false,
+          "description": "Optional SHA-256 of the update script"
+        }
+      }
+    },
+    "restart": {
+      "description": "Restart the client service.",
+      "params": {}
+    },
+    "audit": {
+      "description": "Run a health & privilege audit on every client (app installed/signed, auto-start, Screen Recording, firewall helper) — one [PASS]/[FAIL] line per check.",
+      "params": {
+        "fix": {
+          "type": "boolean",
+          "required": false,
+          "hint": "true = attempt quick fixes (re-register launch agent, open Screen Recording settings, reinstall firewall helper)"
+        }
+      }
+    }
+  }
 }
