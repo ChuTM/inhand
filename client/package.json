@@ -64,6 +64,14 @@
         "from": "helper/audit.sh",
         "to": "helpers/audit.sh"
       }
+    ],
+    "files": [
+      "main.js",
+      "preload.js",
+      "share.html",
+      "share-renderer.js",
+      "lib/**",
+      "res/**"
     ]
   }
 }
