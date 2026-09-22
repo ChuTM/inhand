@@ -32,7 +32,8 @@
 					"required": false,
 					"hint": "Auto-release minutes (1-1440, default 60)"
 				}
-			}
+			},
+			"favorite": true
 		},
 		"fw-status": {
 			"description": "Query the client's firewall lock state (requires the firewall helper).",

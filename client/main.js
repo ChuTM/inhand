@@ -417,6 +417,79 @@ function stopShareWindowsForMode(mode) {
 // --- LAN-ONLY FIREWALL HELPER (root daemon, client/helper/daemon.mjs) ---
 const FW_SOCKET = "/Library/Application Support/InHand/inhand-fw.sock";
 
+// Latest firewall state known to this client. Reported to the host on every
+// change (and on connect) so the admin's LAN-Only card shows the real state.
+let lastFwState = { locked: false, since: null, deadline: null, ttlMinutes: null, keySet: false };
+
+function reportFwState(patch) {
+	if (patch && typeof patch === "object") {
+		lastFwState = { ...lastFwState, ...patch };
+	}
+	if (socket && socket.connected) {
+		socket.emit("fw-state", lastFwState);
+	}
+}
+
+// --- "Your teacher is viewing your screen" overlay ---------------------------
+// A frameless, always-on-top, click-through strip drawn by THIS client (never
+// the macOS Notification API — students could trace that back to the app).
+// Uses a native vibrancy material so the strip blurs whatever is behind it:
+// no solid background, no icon and no dot; English copy only.
+const LAN_ONLY_OVERLAY_HTML = `<!doctype html><html><head><meta charset="utf-8"><style>
+html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overflow:hidden;}
+.wrap{display:flex;align-items:center;justify-content:center;height:100%;font:600 13px -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;color:rgba(0,0,0,0.78);letter-spacing:-0.01em;text-shadow:0 1px 2px rgba(255,255,255,0.35);user-select:none;}
+</style></head><body><div class="wrap">Your teacher is viewing your screen</div></body></html>`;
+
+let lanOnlyOverlay = null;
+
+function showLanOnlyOverlay() {
+	if (lanOnlyOverlay && !lanOnlyOverlay.isDestroyed()) return;
+	try {
+		const { workArea } = screen.getPrimaryDisplay();
+		const W = 640;
+		const H = 40;
+		lanOnlyOverlay = new BrowserWindow({
+			width: W,
+			height: H,
+			x: Math.round(workArea.x + (workArea.width - W) / 2),
+			y: workArea.y + 8,
+			transparent: true,
+			vibrancy: "popover",
+			backgroundColor: "#00000000",
+			frame: false,
+			alwaysOnTop: true,
+			focusable: false,
+			skipTaskbar: true,
+			hasShadow: false,
+			resizable: false,
+			movable: false,
+			fullscreenable: false,
+			webPreferences: { nodeIntegration: false, contextIsolation: true },
+		});
+		lanOnlyOverlay.setAlwaysOnTop(true, "screen-saver");
+		lanOnlyOverlay.loadURL(
+			"data:text/html;charset=utf-8," + encodeURIComponent(LAN_ONLY_OVERLAY_HTML),
+		);
+		// Click-through: the strip never blocks clicks on anything underneath.
+		lanOnlyOverlay.setIgnoreMouseEvents(true, { forward: true });
+	} catch (e) {
+		audit("lan-only-overlay-error", { message: e.message });
+	}
+}
+
+function hideLanOnlyOverlay() {
+	if (lanOnlyOverlay && !lanOnlyOverlay.isDestroyed()) lanOnlyOverlay.destroy();
+	lanOnlyOverlay = null;
+}
+
+function syncLanOnlyOverlay(locked) {
+	if (locked) {
+		showLanOnlyOverlay();
+	} else {
+		hideLanOnlyOverlay();
+	}
+}
+
 /**
  * Send a single-line JSON request to the firewall helper and await its reply.
  * Resolves { ok } from the daemon; rejects on transport/absence of the helper.
@@ -743,6 +816,13 @@ function executeCommand(cmd, env) {
 						ttlMinutes: res.ttlMinutes,
 						deadline: res.deadline,
 					});
+					reportFwState({
+						locked: on,
+						since: on ? Date.now() : null,
+						deadline: on ? res.deadline : null,
+						ttlMinutes: on ? res.ttlMinutes : null,
+					});
+					syncLanOnlyOverlay(on);
 					reportResult(cmd, {
 						stdout: on
 							? `LAN-only enabled (auto-release ${res.ttlMinutes}m, until ${new Date(
@@ -762,6 +842,14 @@ function executeCommand(cmd, env) {
 			fwDaemonRequest("status")
 				.then((res) => {
 					audit("fw-status", { locked: !!res.locked });
+					reportFwState({
+						locked: !!res.locked,
+						since: res.since,
+						deadline: res.deadline,
+						ttlMinutes: res.ttlMinutes,
+						keySet: !!res.keySet,
+					});
+					syncLanOnlyOverlay(!!res.locked);
 					reportResult(cmd, {
 						stdout: JSON.stringify(
 							{
@@ -986,6 +1074,22 @@ function connectSocket() {
 		// Re-announce every few seconds so a late-starting host sees this client.
 		if (heartbeatTimer) clearInterval(heartbeatTimer);
 		heartbeatTimer = setInterval(registerWithTeacher, HEARTBEAT_MS);
+		// Re-sync firewall state (and the "viewing your screen" strip) so a host
+		// that started AFTER this client still shows the real LAN-only state.
+		fwDaemonRequest("status")
+			.then((res) => {
+				reportFwState({
+					locked: !!res.locked,
+					since: res.since,
+					deadline: res.deadline,
+					ttlMinutes: res.ttlMinutes,
+					keySet: !!res.keySet,
+				});
+				syncLanOnlyOverlay(!!res.locked);
+			})
+			.catch(() => {
+				/* helper not installed yet — nothing to sync */
+			});
 	});
 
 	socket.on("disconnect", () => {

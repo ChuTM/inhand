@@ -99,29 +99,37 @@
             </section>
 
             <section class="panel cmd-panel">
-                <h2>Command Composer</h2>
-                <div class="command-wrapper">
-                    <select id="cmd-type" class="cmd-select">
-                        <option value="">Select command…</option>
-                    </select>
-                    <div id="cmd-params" class="cmd-params"></div>
-                    <button type="button" id="btn-send-cmd" class="btn primary">
-                        <i data-lucide="send" class="lucide-icon"></i>
-                        <span>Send</span>
-                    </button>
-                </div>
-                <div class="config-mode-wrapper">
-                    <input type="checkbox" name="config_mode" id="config_mode">
-                    <label for="config_mode">Enable Configuration Mode</label>
-                </div>
-                <div class="wallpaper-guard-row">
-                    <label class="wp-label" for="wp-path">Wallpaper Guard</label>
-                    <input type="text" id="wp-path" class="wp-path-input" placeholder="/System/Library/CoreServices/DefaultDesktop.heic or https://...">
-                    <label class="switch" title="Lock students to the wallpaper above">
-                        <input type="checkbox" id="wp-guard-toggle" checked>
-                        <span class="slider"></span>
-                    </label>
-                    <p class="wp-hint">On = every student is locked to this wallpaper (path or URL, re-applied every few seconds). Off = students may change it.</p>
+                <h2>Actions</h2>
+                <div id="actions-grid" class="actions-grid"></div>
+
+                <button type="button" class="cmd-collapse" id="cmd-collapse" aria-expanded="false">
+                    <span>Commands</span>
+                    <span class="cmd-chevron" id="cmd-chevron">▸</span>
+                </button>
+                <div class="cmd-body hidden" id="cmd-body">
+                    <div class="command-wrapper">
+                        <select id="cmd-type" class="cmd-select">
+                            <option value="">Select command…</option>
+                        </select>
+                        <div id="cmd-params" class="cmd-params"></div>
+                        <button type="button" id="btn-send-cmd" class="btn primary">
+                            <i data-lucide="send" class="lucide-icon"></i>
+                            <span>Send</span>
+                        </button>
+                    </div>
+                    <div class="config-mode-wrapper">
+                        <input type="checkbox" name="config_mode" id="config_mode">
+                        <label for="config_mode">Enable Configuration Mode</label>
+                    </div>
+                    <div class="wallpaper-guard-row">
+                        <label class="wp-label" for="wp-path">Wallpaper Guard</label>
+                        <input type="text" id="wp-path" class="wp-path-input" placeholder="/System/Library/CoreServices/DefaultDesktop.heic or https://...">
+                        <label class="switch" title="Lock students to the wallpaper above">
+                            <input type="checkbox" id="wp-guard-toggle" checked>
+                            <span class="slider"></span>
+                        </label>
+                        <p class="wp-hint">On = every student is locked to this wallpaper (path or URL, re-applied every few seconds). Off = students may change it.</p>
+                    </div>
                 </div>
             </section>
 

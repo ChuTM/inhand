@@ -90,6 +90,78 @@ async function loadCommandWhitelist() {
 		select.appendChild(opt);
 	}
 	renderCommandParams();
+	buildActionCards();
+}
+
+// ---------------------------------------------------------------------------
+// Actions (favorite commands rendered as cards with send animation)
+// ---------------------------------------------------------------------------
+let fwState = { locked: false, since: null, deadline: null, ttlMinutes: null, keySet: false };
+
+function buildActionCards() {
+	const grid = document.getElementById("actions-grid");
+	if (!grid) return;
+	grid.innerHTML = "";
+	for (const [type, def] of Object.entries(commandWhitelist.commands || {})) {
+		if (!def.favorite) continue;
+		const card = document.createElement("button");
+		card.type = "button";
+		card.className = "action-card";
+		card.dataset.action = type;
+		card.title = def.description || "";
+		card.innerHTML = `
+			<span class="action-icon"><span class="plane-wrap"><i data-lucide="send" class="lucide-icon"></i></span></span>
+			<span class="action-name"></span>
+			<span class="action-state"></span>
+		`;
+		card.querySelector(".action-name").textContent = def.label || type;
+		grid.appendChild(card);
+	}
+	if (window.lucide) {
+		lucide.createIcons({ attrs: { class: "lucide-icon", "stroke-width": 1.5 } });
+	}
+	updateActionStates();
+}
+
+function updateActionStates() {
+	const grid = document.getElementById("actions-grid");
+	if (!grid) return;
+	for (const card of grid.querySelectorAll(".action-card")) {
+		const type = card.dataset.action;
+		const stateEl = card.querySelector(".action-state");
+		if (type === "lan-only") {
+			const locked = !!fwState.locked;
+			card.classList.toggle("is-locked", locked);
+			stateEl.textContent = locked ? "ON" : "OFF";
+		}
+	}
+}
+
+async function handleActionClick(type, card) {
+	if (type === "lan-only") {
+		const turnOn = !fwState.locked;
+		const msg = turnOn
+			? "LAN-Only will cut all internet access for every student — only local network traffic stays.\n\nStudents cannot undo this. Continue?"
+			: "Restore internet access for every student?\n\nThis unlocks the firewall on every client.";
+		if (!confirm(msg)) return;
+		card.classList.remove("failed");
+		card.classList.add("sending");
+		const ok = await sendAction(type, { on: turnOn });
+		setTimeout(() => card.classList.remove("sending"), 1150);
+		if (!ok) {
+			card.classList.add("failed");
+			setTimeout(() => card.classList.remove("failed"), 500);
+		}
+	}
+}
+
+async function sendAction(type, params) {
+	const res = await window.electronAPI.sendTeacherEvent("command", { type, params });
+	if (!res.ok) {
+		appendConsoleOutput("Admin System", res.error || "Command rejected.", true);
+		return false;
+	}
+	return true;
 }
 
 function renderCommandParams() {
@@ -423,9 +495,17 @@ function initializeConsoleLayout() {
 async function fetchStatus() {
 	try {
 		const response = await fetch("/api/status");
-		const data = await response.json();
+		let data = await response.json();
 		const table = document.getElementById("device-table");
 		if (!table) return;
+
+		if (data && typeof data === "object" && Array.isArray(data.devices)) {
+			if (data.fwState) {
+				fwState = data.fwState;
+				updateActionStates();
+			}
+			data = data.devices;
+		}
 
 		const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({
 			"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -530,6 +610,22 @@ document.addEventListener("click", (e) => {
 	}
 });
 
+// Actions grid — favorite command cards.
+document.getElementById("actions-grid")?.addEventListener("click", (e) => {
+	const card = e.target.closest(".action-card");
+	if (!card) return;
+	handleActionClick(card.dataset.action, card);
+});
+
+// Collapsible Commands composer.
+document.getElementById("cmd-collapse")?.addEventListener("click", () => {
+	const btn = document.getElementById("cmd-collapse");
+	const body = document.getElementById("cmd-body");
+	const expanded = btn.getAttribute("aria-expanded") === "true";
+	btn.setAttribute("aria-expanded", String(!expanded));
+	body.classList.toggle("hidden", expanded);
+});
+
 document.addEventListener("DOMContentLoaded", () => {
 	initializeConsoleLayout();
 	serverAddress();
@@ -563,6 +659,13 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 socket.on("refresh-ui", fetchStatus);
+
+socket.on("admin-fw-state", (state) => {
+	if (state && typeof state === "object") {
+		fwState = state;
+		updateActionStates();
+	}
+});
 
 socket.on("admin-command-result", (data) => {
 	console.log(data);

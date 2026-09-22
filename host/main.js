@@ -122,6 +122,10 @@ const activeUsers = new Map();
 // name -> last time the history file was written (heartbeat refresh throttle)
 const historySavedAt = new Map();
 
+// Latest firewall lock state reported by clients (fw-state). Drives the
+// LAN-Only action card on the admin page; updated live over the socket.
+let fwState = { locked: false, since: null, deadline: null, ttlMinutes: null, keySet: false };
+
 const peerConnections = new Map();
 const screenShareWindows = new Map();
 
@@ -249,7 +253,7 @@ expressApp.get("/api/status", (req, res) => {
 			socketId: activeUser ? activeUser.socketId : null,
 		};
 	});
-	res.json(report);
+	res.json({ devices: report, fwState });
 });
 
 expressApp.post(
@@ -499,6 +503,15 @@ function handleWhitelistedCommand(cmd) {
 	}
 	audit("command-sent", { type: cmd.type, params: cmd.params });
 	io.emit("admin-command", makeSignedEnvelope("admin-command", { cmd }));
+	// LAN-only is the one command with a hard visible effect on every student;
+	// confirm it with a desktop notification so the teacher knows it went out.
+	if (cmd.type === "lan-only" && Notification.isSupported()) {
+		const on = !!cmd.params?.on;
+		new Notification({
+			title: "InHand",
+			body: `LAN-Only Mode is ${on ? "On" : "Off"}`,
+		}).show();
+	}
 	return { ok: true, clients: clientCount };
 }
 
@@ -611,6 +624,17 @@ io.on("connection", (socket) => {
 				screenShareWindows.get(peerId).close();
 			}
 		}
+	});
+
+	// Clients push their firewall lock state here (plain, non-sensitive: just
+	// lock/unlock + deadline). Forwarded live to the admin dashboard so the
+	// LAN-Only action card shows the real state, not a guess.
+	safeOn(socket, "fw-state", (state) => {
+		if (!state || typeof state !== "object") return;
+		const next = { ...fwState, ...state };
+		next.locked = !!next.locked;
+		fwState = next;
+		io.emit("admin-fw-state", fwState);
 	});
 
 	safeOn(socket, "share-window-join", (data) => {
