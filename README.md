@@ -112,10 +112,14 @@ and command channels keep functioning, but web/cloud access is cut.
   it never edits `/etc/pf.conf`.
 - Rules: block all outbound → pass private ranges (10/8, 172.16/12,
   192.168/16, 100.64/10), loopback, link-local, multicast, DHCP, and DNS (53).
-- The teacher's key syncs to the daemon automatically on first discovery
-  (first-set wins). **Unlock requires the teacher's Ed25519 signature** — the
-  client re-forwards the original signed command, and the daemon re-verifies
-  it against its own copy of the key. Students cannot unlock.
+- The teacher's key syncs to the daemon automatically on discovery and is
+  **overwritten whenever the teacher rotates it** — the client detects a
+  fingerprint mismatch and re-pushes the new key (the daemon accepts
+  overwrites; a student who can swap keys themselves is not worth fighting,
+  unlock still requires the teacher's signature). **Unlock requires the
+  teacher's Ed25519 signature** — the client re-forwards the original signed
+  command, and the daemon re-verifies it against its own copy of the key.
+  Students cannot unlock.
 - Defaults (changeable per command via `ttl`): auto-release after 60 minutes;
   the lock survives app quit and reboot (re-applied by launchd on boot, and
   auto-expires when the TTL elapses).
@@ -123,7 +127,7 @@ and command channels keep functioning, but web/cloud access is cut.
 **Manual force-close / emergency** (run on the student machine, as admin):
 
 ```bash
-sudo /Library/Application Support/InHand/inhand-fwctl unlock
+sudo sh /Library/Application Support/InHand/inhand-fwctl unlock
 ```
 
 Or, bypassing everything in one shot:
@@ -136,10 +140,10 @@ sudo rm -f "/Library/Application Support/InHand/fw-state.json"
 Other `inhand-fwctl` commands:
 
 ```bash
-sudo inhand-fwctl status                     # lock state + teacher key status
-sudo inhand-fwctl lock --ttl=60              # manually apply LAN-only mode
-sudo inhand-fwctl setkey <base64_pub>        # update the teacher key (after rotation)
-sudo inhand-fwctl uninstall                  # flush rules, unload daemon, remove files
+sudo sh /Library/Application Support/InHand/inhand-fwctl status                     # lock state + teacher key status
+sudo sh /Library/Application Support/InHand/inhand-fwctl lock --ttl=60              # manually apply LAN-only mode
+sudo sh /Library/Application Support/InHand/inhand-fwctl setkey <base64_pub>        # update the teacher key (after rotation)
+sudo sh /Library/Application Support/InHand/inhand-fwctl uninstall                  # flush rules, unload daemon, remove files
 ```
 
 **Operational notes & caveats**
@@ -147,8 +151,10 @@ sudo inhand-fwctl uninstall                  # flush rules, unload daemon, remov
 - The daemon rejects stale timestamps, replayed nonces, and any event not
   signed by the configured teacher key; all ops are logged to
   `/Library/Application Support/InHand/fw.log`.
-- After the teacher rotates keys, run `sudo inhand-fwctl setkey <pub>` on each
-  student machine once (the client shows the new key in discovery).
+- After the teacher rotates keys, clients **re-sync automatically** on their
+  next discovery/heartbeat (the daemon's key is overwritten). Only helpers
+  installed before the keyFingerprint feature need a manual
+  `sudo sh /Library/Application Support/InHand/inhand-fwctl setkey <pub>` once.
 - This is a classroom **policy control, not a security boundary**: a student
   with admin rights can unload the daemon or boot another OS. Physical control
   is the real boundary here.

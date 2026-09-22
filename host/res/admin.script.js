@@ -35,9 +35,7 @@ async function initSecurity() {
 		setupForm.classList.add("hidden");
 	} else {
 		gate.classList.add("hidden");
-		document.getElementById("security-settings").classList.remove("hidden");
 		loadCommandWhitelist();
-		loadSettingsIntoForm();
 	}
 }
 
@@ -75,45 +73,6 @@ document.getElementById("btn-unlock").addEventListener("click", async () => {
 	} else {
 		document.getElementById("login-error").textContent = res.error;
 	}
-});
-
-async function loadSettingsIntoForm() {
-	const settings = await window.electronAPI.getSettings();
-	document.getElementById("set-school").value = settings.schoolName || "";
-	document.getElementById("set-token").value =
-		settings.registrationToken || "";
-	document.getElementById("set-apiurl").value = settings.apiUrl || "";
-}
-
-document.getElementById("btn-save-settings").addEventListener("click", async () => {
-	const res = await window.electronAPI.setSettings({
-		schoolName: document.getElementById("set-school").value.trim(),
-		registrationToken: document.getElementById("set-token").value.trim(),
-		apiUrl: document.getElementById("set-apiurl").value.trim(),
-	});
-	document.getElementById("security-msg").textContent = res.ok
-		? "Saved."
-		: (res.error || "Failed");
-});
-
-document.getElementById("btn-rotate").addEventListener("click", async () => {
-	const password = prompt("Enter your current password to regenerate keys:");
-	if (!password) return;
-	const res = await window.electronAPI.rotateKeys(password);
-	document.getElementById("security-msg").textContent = res.ok
-		? "Keys regenerated and re-registered to the cloud."
-		: (res.error || "Failed");
-});
-
-document.getElementById("btn-change-password").addEventListener("click", async () => {
-	const oldPw = prompt("Current password:");
-	if (!oldPw) return;
-	const newPw = prompt("New password (min 8 chars):");
-	if (!newPw) return;
-	const res = await window.electronAPI.changePassword(oldPw, newPw);
-	document.getElementById("security-msg").textContent = res.ok
-		? "Password changed."
-		: (res.error || "Failed");
 });
 
 // ---------------------------------------------------------------------------

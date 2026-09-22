@@ -35,6 +35,21 @@ function hideAppError() {
   $("app-error").classList.remove("visible");
 }
 
+// ---- action feedback ------------------------------------------------------------
+function toast(msg, kind = "ok") {
+  const root = document.getElementById("toast-root");
+  if (!root) return;
+  const el = document.createElement("div");
+  el.className = `toast toast-${kind}`;
+  el.textContent = msg;
+  root.appendChild(el);
+  requestAnimationFrame(() => el.classList.add("show"));
+  setTimeout(() => {
+    el.classList.remove("show");
+    setTimeout(() => el.remove(), 350);
+  }, 4000);
+}
+
 async function loadAll() {
   const t0 = performance.now();
   try {
@@ -180,10 +195,10 @@ async function registerPasskey() {
     });
     if (resp.ok) {
       loadAll();
-      alert("Passkey registered for " + INHAND.session.email);
+      toast("Passkey registered for " + INHAND.session.email);
     }
   } catch (e) {
-    alert("Passkey registration failed: " + e.message);
+    toast("Passkey registration failed: " + e.message, "error");
   }
 }
 
@@ -253,13 +268,14 @@ function copyPub() {
 async function revokeToken(token) {
   try {
     await api("/admin/tokens", { method: "POST", body: { revoke: true, token } });
+    toast("Token revoked.");
     loadAll();
-  } catch (e) { alert(e.message); }
+  } catch (e) { toast(e.message, "error"); }
 }
 async function removeReg(ip) {
   if (!confirm("Remove registration for " + ip + "?")) return;
-  try { await api("/admin/registrations/" + encodeURIComponent(ip), { method: "DELETE" }); loadAll(); }
-  catch (e) { alert(e.message); }
+  try { await api("/admin/registrations/" + encodeURIComponent(ip), { method: "DELETE" }); toast("Registration removed."); loadAll(); }
+  catch (e) { toast(e.message, "error"); }
 }
 async function publishUpdate() {
   try {
@@ -273,13 +289,14 @@ async function publishUpdate() {
       },
     });
     ["upd-version", "upd-platform", "upd-url", "upd-sha"].forEach((id) => ($(id).value = ""));
+    toast("Update manifest published.");
     loadAll();
-  } catch (e) { alert(e.message); }
+  } catch (e) { toast(e.message, "error"); }
 }
 async function deleteUpdate(id) {
   if (!confirm("Delete manifest #" + id + "?")) return;
-  try { await api("/admin/updates/" + encodeURIComponent(id), { method: "DELETE" }); loadAll(); }
-  catch (e) { alert(e.message); }
+  try { await api("/admin/updates/" + encodeURIComponent(id), { method: "DELETE" }); toast("Update manifest deleted."); loadAll(); }
+  catch (e) { toast(e.message, "error"); }
 }
 async function addAdmin() {
   const email = $("admin-email").value.trim();
@@ -287,18 +304,19 @@ async function addAdmin() {
   try {
     await api("/auth/admins", { method: "POST", body: { email } });
     $("admin-email").value = "";
+    toast(email + " added to the admin team.");
     loadAll();
-  } catch (e) { alert(e.message); }
+  } catch (e) { toast(e.message, "error"); }
 }
 async function removeAdmin(email) {
   if (!confirm("Remove " + email + " from the admin team?")) return;
-  try { await api("/auth/admins/" + encodeURIComponent(email), { method: "DELETE" }); loadAll(); }
-  catch (e) { alert(e.message); }
+  try { await api("/auth/admins/" + encodeURIComponent(email), { method: "DELETE" }); toast(email + " removed from the admin team."); loadAll(); }
+  catch (e) { toast(e.message, "error"); }
 }
 async function deleteCredential(id) {
   if (!confirm("Remove this passkey?")) return;
-  try { await api("/auth/credentials/" + encodeURIComponent(id), { method: "DELETE" }); loadAll(); }
-  catch (e) { alert(e.message); }
+  try { await api("/auth/credentials/" + encodeURIComponent(id), { method: "DELETE" }); toast("Passkey removed."); loadAll(); }
+  catch (e) { toast(e.message, "error"); }
 }
 async function logout() {
   try { await api("/auth/logout", { method: "POST" }); } catch {}

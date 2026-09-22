@@ -47,6 +47,18 @@
       {
         "from": "helper/setdesktop",
         "to": "helper/setdesktop"
+      },
+      {
+        "from": "helper/daemon.mjs",
+        "to": "helpers/daemon.mjs"
+      },
+      {
+        "from": "helper/inhand-fwctl",
+        "to": "helpers/inhand-fwctl"
+      },
+      {
+        "from": "helper/com.inhand.fw.plist",
+        "to": "helpers/com.inhand.fw.plist"
       }
     ]
   }

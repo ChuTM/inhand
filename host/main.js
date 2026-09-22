@@ -101,7 +101,9 @@ function saveSettings(patch) {
 const settings = {
 	schoolName: loadSettings().schoolName || "",
 	registrationToken: loadSettings().registrationToken || "",
-	apiUrl: process.env.WP_API_URL || loadSettings().apiUrl || "",
+	// Preset to the official InHand cloud discovery server; the registration
+	// heartbeat normalizes the scheme (https://) before fetching.
+	apiUrl: process.env.WP_API_URL || loadSettings().apiUrl || "inhand-server.vercel.app",
 };
 
 // ---------------------------------------------------------------------------
@@ -524,6 +526,16 @@ io.on("connection", (socket) => {
 			const data = JSON.parse(decryptFrom(encPriv, payload.enc));
 			const macUsername = String(data.name || "");
 			if (!macUsername) return;
+			// Push the current teacher keys on every registration/heartbeat so a
+			// rotated key reaches clients over the LAN even while the internet is
+			// cut (LAN-only lock). The client re-pushes it to its firewall daemon.
+			const pubs = keyring.getPubs();
+			if (pubs?.signPub) {
+				socket.emit("register-ack", {
+					signPub: pubs.signPub,
+					encPub: pubs.encPub || null,
+				});
+			}
 			const prev = activeUsers.get(socket.id);
 			activeUsers.set(socket.id, macUsername);
 			if (prev === macUsername) {
@@ -744,13 +756,39 @@ ipcMain.handle("GET_SCREEN_SOURCES", async () => {
 	}));
 });
 
-ipcMain.handle("GET_SECURITY_STATE", () => ({
-	needsSetup: !keyring.keyringExists(),
-	locked: !keyring.isUnlocked(),
-	schoolName: settings.schoolName,
-	apiUrl: settings.apiUrl,
-	registered: !!settings.registrationToken,
-}));
+/** Short fingerprint of a public key (sha256, first 16 hex) — matches client/daemon. */
+function keyFingerprint(pubB64) {
+	if (!pubB64) return null;
+	return crypto.createHash("sha256").update(pubB64).digest("hex").slice(0, 16);
+}
+
+// Settings are plaintext on disk, so never hand them to an unlocked-less
+// renderer. The Settings window gates on GET_SECURITY_STATE first; these
+// handlers double-check server-side so a locked window leaks nothing.
+ipcMain.handle("GET_SECURITY_STATE", () => {
+	const locked = !keyring.isUnlocked();
+	if (locked) {
+		return {
+			needsSetup: !keyring.keyringExists(),
+			locked: true,
+			schoolName: null,
+			apiUrl: null,
+			registered: false,
+			signPub: null,
+			signFingerprint: null,
+		};
+	}
+	const pubs = keyring.getPubs() || {};
+	return {
+		needsSetup: false,
+		locked: false,
+		schoolName: settings.schoolName,
+		apiUrl: settings.apiUrl,
+		registered: !!settings.registrationToken,
+		signPub: pubs.signPub || null,
+		signFingerprint: keyFingerprint(pubs.signPub),
+	};
+});
 
 ipcMain.handle("SETUP", (_event, { password, schoolName, registrationToken }) => {
 	try {
@@ -781,10 +819,16 @@ ipcMain.handle("UNLOCK", (_event, { password }) => {
 
 ipcMain.handle("ROTATE_KEYS", (_event, { password }) => {
 	try {
+		const before = keyring.getPubs() || {};
 		const { pubs } = keyring.rotateKeys(password);
 		audit("keys-rotated", {});
 		startRegistrationHeartbeat();
-		return { ok: true, pubs };
+		return {
+			ok: true,
+			pubs,
+			oldFingerprint: keyFingerprint(before.signPub),
+			newFingerprint: keyFingerprint(pubs.signPub),
+		};
 	} catch (err) {
 		audit("rotate-failed", { message: err.message });
 		return { ok: false, error: err.message };
@@ -804,9 +848,13 @@ ipcMain.handle("CHANGE_PASSWORD", (_event, { oldPassword, newPassword }) => {
 
 ipcMain.handle("GET_CSRF", () => csrfToken);
 
-ipcMain.handle("GET_SETTINGS", () => ({ ...settings }));
+ipcMain.handle("GET_SETTINGS", () => {
+	if (!keyring.isUnlocked()) return { locked: true };
+	return { ...settings };
+});
 
 ipcMain.handle("SET_SETTINGS", (_event, patch) => {
+	if (!keyring.isUnlocked()) return { ok: false, error: "locked" };
 	const safe = {};
 	if (typeof patch.schoolName === "string") safe.schoolName = patch.schoolName;
 	if (typeof patch.registrationToken === "string")
@@ -912,6 +960,46 @@ ipcMain.on("CREATE_SHARE_WINDOW", (event, { url, title, peerId }) => {
 // ---------------------------------------------------------------------------
 // Electron UI
 // ---------------------------------------------------------------------------
+let settingsWindow = null;
+
+// "Settings…" lives in the app menu (Cmd+,) and opens its own small window,
+// so the dashboard stays clean. It uses the same preload/IPC bridge.
+function openSettingsWindow() {
+	if (settingsWindow && !settingsWindow.isDestroyed()) {
+		settingsWindow.focus();
+		return;
+	}
+	settingsWindow = new BrowserWindow({
+		width: 540,
+		height: 680,
+		resizable: false,
+		minimizable: false,
+		maximizable: false,
+		fullscreenable: false,
+		show: false,
+		title: "InHand Settings",
+		backgroundColor: "#f5f5f7",
+		icon: path.join(STATIC_RES_PATH, "icon.png"),
+		webPreferences: {
+			nodeIntegration: false,
+			contextIsolation: true,
+			sandbox: true,
+			preload: path.join(__dirname, "preload.cjs"),
+		},
+	});
+	settingsWindow.setMenuBarVisibility(false);
+	settingsWindow.webContents.on("console-message", (event, level, message) => {
+		console.log(`[settings-window] ${message}`);
+		if (level >= 2) audit("settings-window-console", { message });
+	});
+	settingsWindow.once("ready-to-show", () => settingsWindow.show());
+	settingsWindow.on("closed", () => {
+		settingsWindow = null;
+	});
+	settingsWindow.loadURL(`http://localhost:${PORT}/settings.html`);
+	if (DEV_MODE) settingsWindow.webContents.openDevTools({ mode: "detach" });
+}
+
 function showWindow() {
 	if (!mainWindow) {
 		mainWindow = new BrowserWindow({
@@ -1004,6 +1092,11 @@ function installAppMenu() {
 							{
 								label: "Open Admin Dashboard",
 								click: () => showWindow(),
+							},
+							{
+								label: "Settings…",
+								accelerator: "CmdOrCtrl+,",
+								click: () => openSettingsWindow(),
 							},
 							{ type: "separator" },
 							{ role: "hide" },

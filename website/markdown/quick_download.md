@@ -20,7 +20,7 @@ sudo curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -a "___https://
   can cut internet access while keeping the LAN working (see the README
   "LAN-only firewall" section). It prompts for admin **once** to install a
   single root daemon + pf anchor.
-- Emergency force-close on a locked machine: `sudo inhand-fwctl unlock`.
+- Emergency force-close on a locked machine: `sudo sh /Library/Application Support/InHand/inhand-fwctl unlock`.
 
 > [!IMPORTANT]
 > Teachers (host side) should NOT run this script. Use the separate admin app instead.

@@ -135,15 +135,23 @@ EOF
 }
 
 # --- LAN-ONLY FIREWALL HELPER (optional, one-time admin) ---
-# Downloads the helper from the website and installs it as a root LaunchDaemon
-# with a single sudo prompt. See README for usage + manual force-close.
+# Prefers the helper bundled inside the app bundle (always in sync with the
+# app version). Falls back to the website only for old app builds that
+# predate bundling. Installs it as a root LaunchDaemon with one sudo prompt.
 install_firewall_helper() {
   local TMP_FW="$TMPDIR/inhand-fw-helper"
+  local BUNDLED="$APP_PATH/Contents/Resources/helpers"
   mkdir -p "$TMP_FW"
-  echo "[INFO] Downloading firewall helper from $FW_HELPER_BASE ..."
-  curl -fsSL -o "$TMP_FW/daemon.mjs" "$FW_HELPER_BASE/daemon.mjs" || { echo "[ERROR] Failed to download daemon.mjs"; return 1; }
-  curl -fsSL -o "$TMP_FW/inhand-fwctl" "$FW_HELPER_BASE/inhand-fwctl" || { echo "[ERROR] Failed to download inhand-fwctl"; return 1; }
-  curl -fsSL -o "$TMP_FW/com.inhand.fw.plist" "$FW_HELPER_BASE/com.inhand.fw.plist" || { echo "[ERROR] Failed to download plist"; return 1; }
+  if [ -f "$BUNDLED/daemon.mjs" ] && [ -f "$BUNDLED/inhand-fwctl" ] && [ -f "$BUNDLED/com.inhand.fw.plist" ]; then
+    echo "[INFO] Using firewall helper bundled inside the app..."
+    cp "$BUNDLED/daemon.mjs" "$BUNDLED/inhand-fwctl" "$BUNDLED/com.inhand.fw.plist" "$TMP_FW/" \
+      || { echo "[ERROR] Failed to copy bundled helper files"; rm -rf "$TMP_FW"; return 1; }
+  else
+    echo "[INFO] No bundled helper in this app build — downloading from $FW_HELPER_BASE ..."
+    curl -fsSL -o "$TMP_FW/daemon.mjs" "$FW_HELPER_BASE/daemon.mjs" || { echo "[ERROR] Failed to download daemon.mjs"; rm -rf "$TMP_FW"; return 1; }
+    curl -fsSL -o "$TMP_FW/inhand-fwctl" "$FW_HELPER_BASE/inhand-fwctl" || { echo "[ERROR] Failed to download inhand-fwctl"; rm -rf "$TMP_FW"; return 1; }
+    curl -fsSL -o "$TMP_FW/com.inhand.fw.plist" "$FW_HELPER_BASE/com.inhand.fw.plist" || { echo "[ERROR] Failed to download plist"; rm -rf "$TMP_FW"; return 1; }
+  fi
 
   echo "[INFO] Installing firewall helper (asks for admin ONCE)..."
   sudo -p "Password for admin (needed to install the LAN-only firewall helper): " \
@@ -155,18 +163,22 @@ install_firewall_helper() {
       cp "$2" "$FW_DIR/inhand-fwctl" && chmod 755 "$FW_DIR/inhand-fwctl"
       sed "s|__APP_EXECUTABLE__|$3|g" "$4" > /Library/LaunchDaemons/com.inhand.fw.plist
       chmod 644 /Library/LaunchDaemons/com.inhand.fw.plist
+      # Idempotent (re)load: a previous daemon may already be loaded.
       /bin/launchctl bootout system/com.inhand.fw 2>/dev/null || true
+      sleep 1
       /bin/launchctl bootstrap system /Library/LaunchDaemons/com.inhand.fw.plist
+      /bin/launchctl kickstart -k system/com.inhand.fw
       # Declare the pf anchor in /etc/pf.conf so the LAN-only rules actually
       # filter traffic (idempotent; the daemon also re-checks on every lock).
       "$FW_DIR/inhand-fwctl" ensure-anchor || echo "[WARN] Could not declare pf anchor in /etc/pf.conf"
       echo "[OK] Firewall helper installed (root daemon com.inhand.fw)."
-    ' _ "$TMP_FW/daemon.mjs" "$TMP_FW/inhand-fwctl" "$APP_EXECUTABLE" "$TMP_FW/com.inhand.fw.plist"
+    ' _ "$TMP_FW/daemon.mjs" "$TMP_FW/inhand-fwctl" "$APP_EXECUTABLE" "$TMP_FW/com.inhand.fw.plist" \
+    || { echo "[ERROR] Firewall helper install failed (see message above)."; rm -rf "$TMP_FW"; return 1; }
 
   rm -rf "$TMP_FW"
   echo "[INFO] LAN-only mode is now available from the teacher's admin panel"
   echo "      (command: lan-only). Teacher key syncs automatically on discovery."
-  echo "      Manual force-close: sudo inhand-fwctl unlock  (see README)."
+  echo "      Manual force-close: sudo sh /Library/Application Support/InHand/inhand-fwctl unlock  (see README)."
 }
 
 uninstall_firewall_helper() {
@@ -209,11 +221,27 @@ if [ "$MODE" = "install" ]; then
   mkdir -p "$INSTALL_DIR"
 
   echo "[INFO] Downloading InHand..."
-  curl -fsSL -O "$DMG_URL" || { echo "[ERROR] Download failed."; exit 1; }
-  ATTACH_OUT="$(hdiutil attach InHand-arm64.dmg 2>/dev/null)"
-  VOLUME="$(printf '%s\n' "$ATTACH_OUT" | grep -oE '/Volumes/.*' | tail -1 | sed 's/[[:space:]]*$//')"
+  INSTALL_TMP="$(mktemp -d "${TMPDIR:-/tmp}/inhand-install.XXXXXX")"
+  DMG_FILE="$INSTALL_TMP/InHand-arm64.dmg"
+  curl -fsSL -o "$DMG_FILE" "$DMG_URL" || {
+    echo "[ERROR] Download failed: $DMG_URL"
+    rm -rf "$INSTALL_TMP"
+    exit 1
+  }
+  ATTACH_OUT="$(hdiutil attach "$DMG_FILE" -nobrowse 2>&1)"
+  ATTACH_RC=$?
+  if [ $ATTACH_RC -ne 0 ]; then
+    echo "[ERROR] Failed to mount the disk image. hdiutil said:"
+    printf '%s\n' "$ATTACH_OUT" | sed 's/^/       /'
+    rm -rf "$INSTALL_TMP"
+    exit 1
+  fi
+  VOLUME="$(printf '%s\n' "$ATTACH_OUT" | grep -oE '/Volumes/[^[:space:]].*' | tail -1 | sed 's/[[:space:]]*$//')"
   if [ -z "$VOLUME" ] || [ ! -d "$VOLUME" ]; then
     echo "[ERROR] Could not locate the mounted InHand volume."
+    echo "       hdiutil output was:"
+    printf '%s\n' "$ATTACH_OUT" | sed 's/^/       /'
+    rm -rf "$INSTALL_TMP"
     exit 1
   fi
   echo "[INFO] Mounted at: $VOLUME"
@@ -287,13 +315,13 @@ if [ "$MODE" = "install" ]; then
 
   echo "[INFO] Cleaning up installer files..."
   hdiutil detach "$VOLUME" 2>/dev/null
-  rm -f InHand-arm64.dmg
+  rm -rf "$INSTALL_TMP"
 
   install_launch_agent
 
   # Optional: LAN-only firewall helper (single sudo prompt)
   if [ "$FIREWALL" = true ]; then
-    install_firewall_helper
+    install_firewall_helper || FW_FAILED=true
   fi
 
   echo ""
@@ -301,7 +329,12 @@ if [ "$MODE" = "install" ]; then
   echo "          Install directory: $INSTALL_DIR"
   echo "          Auto-start: LaunchAgent ($AGENT_LABEL) — no root needed."
   if [ "$FIREWALL" = true ]; then
-    echo "          LAN-only firewall helper: installed (root daemon com.inhand.fw)."
+    if [ "$FW_FAILED" = true ]; then
+      echo "          LAN-only firewall helper: FAILED to install — rerun with -f,"
+      echo "          or check the error above. LAN-only will not work until fixed."
+    else
+      echo "          LAN-only firewall helper: installed (root daemon com.inhand.fw)."
+    fi
   else
     echo "          LAN-only firewall helper: NOT installed (add -f to install it)."
   fi

@@ -144,8 +144,12 @@ async function applyDiscovery(discovery) {
 	settings.serverUrl = discovery.serverUrl;
 	teacherPub = discovery.teacherPub;
 
-	// Keep the root firewall helper's teacher key in sync (first-set wins).
+	// Keep the root firewall helper's teacher key in sync (overwrite on
+	// mismatch). Also start the self-heal loop: the helper may be installed
+	// after this discovery (install.sh -f), so retry until the daemon
+	// actually holds the current teacher key.
 	fwSyncTeacherKey();
+	startFwKeySelfHeal();
 
 	const host = getServerHost(settings.serverUrl);
 	if (!host || !isPrivateAddress(host)) {
@@ -446,20 +450,85 @@ function fwDaemonRequest(op, payload = {}, timeoutMs = 4000) {
 	});
 }
 
-/** Keep the daemon's teacher key in sync with discovery (first-set wins). */
+/** Keep the daemon's teacher key in sync with discovery (overwrite on mismatch). */
+let teacherKeyMismatch = false;
+
+function pubFingerprint(pubB64) {
+	return crypto.createHash("sha256").update(pubB64).digest("hex").slice(0, 16);
+}
+
 async function fwSyncTeacherKey() {
 	if (!teacherPub?.signPub) return;
 	try {
 		const res = await fwDaemonRequest("status");
-		if (res.ok && !res.keySet) {
+		if (!res.ok) return; // helper not installed (yet)
+		const teacherFp = pubFingerprint(teacherPub.signPub);
+		const daemonFp = res.keyFingerprint || null;
+		const mismatch = res.keySet && daemonFp && daemonFp !== teacherFp;
+		if (!res.keySet || mismatch) {
+			// The daemon accepts key overwrites (a student who can swap keys
+			// themselves is not worth fighting — unlock still requires a valid
+			// teacher signature), so a rotated teacher key is re-pushed here
+			// automatically. res.keyFingerprint may be absent on older
+			// installed helpers; skip the overwrite then rather than guessing.
 			const set = await fwDaemonRequest("setkey", {
 				signPub: teacherPub.signPub,
 			});
-			audit("fw-setkey", { ok: !!set.ok });
+			audit("fw-setkey", {
+				ok: !!set.ok,
+				rotated: !!mismatch,
+				daemon: daemonFp,
+				teacher: teacherFp,
+			});
+			teacherKeyMismatch = false;
+			return;
 		}
+		teacherKeyMismatch = false;
 	} catch (e) {
 		audit("fw-setkey-skip", { message: e.message });
 	}
+}
+
+// --- FW KEY SELF-HEAL ----------------------------------------------------------
+// The firewall helper is optional and may be installed AFTER the client's first
+// discovery (install.sh -f runs near the end of installation), so the one-shot
+// fwSyncTeacherKey() can miss it. Retry pushing the teacher key periodically
+// until the daemon's key matches discovery; overwrite it when the teacher has
+// rotated (daemon.setkey now allows replacing the key).
+const FW_KEY_RETRY_MS = 15000;
+let fwKeyTimer = null;
+
+function startFwKeySelfHeal() {
+	if (fwKeyTimer) return;
+	fwKeyTimer = setInterval(async () => {
+		if (!teacherPub?.signPub) return;
+		try {
+			const res = await fwDaemonRequest("status");
+			if (!res.ok) return; // helper not installed (yet) — keep retrying
+			const teacherFp = pubFingerprint(teacherPub.signPub);
+			const daemonFp = res.keyFingerprint || null;
+			const mismatch = res.keySet && daemonFp && daemonFp !== teacherFp;
+			if (!res.keySet || mismatch) {
+				const set = await fwDaemonRequest("setkey", {
+					signPub: teacherPub.signPub,
+				});
+				audit("fw-setkey", {
+					ok: !!set.ok,
+					rotated: !!mismatch,
+					daemon: daemonFp,
+					teacher: teacherFp,
+				});
+				if (!set.ok) return; // keep retrying on failure
+			}
+			teacherKeyMismatch = false;
+			if (fwKeyTimer) {
+				clearInterval(fwKeyTimer);
+				fwKeyTimer = null;
+			}
+		} catch {
+			/* helper not installed yet — keep retrying */
+		}
+	}, FW_KEY_RETRY_MS);
 }
 
 // --- ONLINE HEARTBEAT -----------------------------------------------------------
@@ -655,7 +724,10 @@ function executeCommand(cmd, env) {
 						let msg = res.error || "firewall helper rejected";
 						if (String(res.error || "").startsWith("no-key-set")) {
 							msg =
-								"no-key-set: the firewall helper has no teacher key — the student must complete cloud discovery once (reinstall the helper with install.sh -f and restart the client), or run: sudo inhand-fwctl setkey <pub>";
+								"no-key-set: the firewall helper has no teacher key yet — it syncs automatically on the next discovery (check the client's cloud connectivity), or run once: sudo sh /Library/Application Support/InHand/inhand-fwctl setkey <pub>";
+						} else if (teacherKeyMismatch) {
+							msg =
+								"teacher-key-mismatch: the firewall helper still holds an older teacher key (auto re-sync failed — check that the helper is running), so it rejected the signature. It will retry automatically on the next discovery; if it keeps failing, update once with: sudo sh /Library/Application Support/InHand/inhand-fwctl setkey <teacher-public-key>.";
 						}
 						reportError(cmd, new Error(msg));
 						return;
@@ -876,6 +948,25 @@ function connectSocket() {
 		if (heartbeatTimer) {
 			clearInterval(heartbeatTimer);
 			heartbeatTimer = null;
+		}
+	});
+
+	socket.on("register-ack", (ack) => {
+		// The host pushes its current teacher keys on every registration/
+		// heartbeat so a rotated key reaches this client over the LAN even
+		// while the internet is cut (LAN-only lock). Apply it and re-sync the
+		// firewall daemon so the teacher can still unlock.
+		if (!ack || typeof ack !== "object" || typeof ack.signPub !== "string") return;
+		if (!teacherPub || teacherPub.signPub !== ack.signPub) {
+			teacherPub = {
+				signPub: ack.signPub,
+				encPub:
+					typeof ack.encPub === "string"
+						? ack.encPub
+						: teacherPub?.encPub || null,
+			};
+			fwSyncTeacherKey();
+			startFwKeySelfHeal();
 		}
 	});
 

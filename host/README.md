@@ -84,4 +84,4 @@ viewed on top of it.
   commands (whitelist in `../shared/commands.json`). Clients apply the lock via
   their local root helper (`install.sh -f`). See the project README's
   "LAN-only firewall" section for setup and the emergency
-  `sudo inhand-fwctl unlock` force-close.
+  `sudo sh /Library/Application Support/InHand/inhand-fwctl unlock` force-close.

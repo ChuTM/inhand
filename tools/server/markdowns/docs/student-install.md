@@ -26,7 +26,7 @@ During the install you will be asked to grant **Screen Recording** permission. T
 - Installs the client **per-user** at `~/Library/Application Support/InHand/` — no root daemon, no world-writable directories.
 - Registers a **LaunchAgent** so the client starts at login and keeps running (`com.inhand.student.plist`).
 - Sets the cloud API URL, then calls `/api/v1/discover` on every boot — the client verifies the cloud-signed response and automatically learns the teacher's LAN address and public keys. No per-machine server configuration.
-- With `-f`, installs the LAN-only firewall helper (`inhand-fwctl`) so the teacher can cut internet access while keeping the LAN working. Emergency force-close on a locked machine: `sudo inhand-fwctl unlock`.
+- With `-f`, installs the LAN-only firewall helper (`inhand-fwctl`) so the teacher can cut internet access while keeping the LAN working. Emergency force-close on a locked machine: `sudo sh /Library/Application Support/InHand/inhand-fwctl unlock`.
 
 ## Permissions
 

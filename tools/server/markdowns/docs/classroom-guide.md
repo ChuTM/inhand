@@ -30,7 +30,7 @@ To bring every student device to the same screen:
 
 ### Cut internet access (optional)
 
-If your school installed the LAN-only firewall helper, the teacher can cut internet access for the class while keeping the LAN working — useful for tests or exams. Click the firewall toggle in the console. To force-close a locked machine: `sudo inhand-fwctl unlock`.
+If your school installed the LAN-only firewall helper, the teacher can cut internet access for the class while keeping the LAN working — useful for tests or exams. Click the firewall toggle in the console. To force-close a locked machine: `sudo sh /Library/Application Support/InHand/inhand-fwctl unlock`.
 
 ## After the lesson
 

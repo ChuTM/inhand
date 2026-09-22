@@ -2,11 +2,11 @@
 # inhand-fwctl — manual control for the InHand LAN-only firewall helper.
 # Run as ROOT (sudo). This is the documented emergency/manual escape hatch.
 #
-#   sudo inhand-fwctl status              # show lock state + teacher key status
-#   sudo inhand-fwctl unlock              # FORCE unlock (flush pf rules + clear state)
-#   sudo inhand-fwctl lock --ttl 60       # manually apply LAN-only mode (emergency)
-#   sudo inhand-fwctl setkey <pub_b64>    # set/replace the teacher's Ed25519 public key
-#   sudo inhand-fwctl uninstall           # flush rules, unload daemon, remove files
+#   sudo sh /Library/Application Support/InHand/inhand-fwctl status              # show lock state + teacher key status
+#   sudo sh /Library/Application Support/InHand/inhand-fwctl unlock              # FORCE unlock (flush pf rules + clear state)
+#   sudo sh /Library/Application Support/InHand/inhand-fwctl lock --ttl 60       # manually apply LAN-only mode (emergency)
+#   sudo sh /Library/Application Support/InHand/inhand-fwctl setkey <pub_b64>    # set/replace the teacher's Ed25519 public key
+#   sudo sh /Library/Application Support/InHand/inhand-fwctl uninstall           # flush rules, unload daemon, remove files
 #
 # Emergency force-close (worst case, bypasses everything):
 #   sudo /sbin/pfctl -a com.inhand -F all
@@ -85,7 +85,7 @@ EOF
 cmd_setkey() {
   local pub="${1:-}"
   if [[ -z "$pub" ]]; then
-    echo "usage: sudo inhand-fwctl setkey <base64_ed25519_spki_pub>" >&2
+    echo "usage: sudo sh /Library/Application Support/InHand/inhand-fwctl setkey <base64_ed25519_spki_pub>" >&2
     exit 2
   fi
   cat > "$CONFIG" <<EOF
@@ -115,6 +115,6 @@ case "${1:-}" in
   ensure-anchor) ensure_anchor ;;
   uninstall) cmd_uninstall ;;
   *)
-    echo "usage: sudo inhand-fwctl {status|unlock|lock --ttl=MIN|setkey <pub>|ensure-anchor|uninstall}" >&2
+    echo "usage: sudo sh /Library/Application Support/InHand/inhand-fwctl {status|unlock|lock --ttl=MIN|setkey <pub>|ensure-anchor|uninstall}" >&2
     exit 2 ;;
 esac

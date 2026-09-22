@@ -241,3 +241,37 @@ section.audit { grid-column: span 12; }
   header { padding: 14px 16px; }
   .url-pill { display: none; }
 }
+
+/* ---- Toasts (action feedback) ----------------------------------------------------- */
+.toast-root {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  z-index: 3000;
+  pointer-events: none;
+  max-width: min(420px, 90vw);
+}
+.toast {
+  background: rgba(29, 29, 31, 0.94);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 10px 16px;
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.2s, transform 0.2s;
+  pointer-events: auto;
+}
+.toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+.toast-error {
+  background: rgba(160, 20, 20, 0.96);
+}

@@ -6,7 +6,7 @@
  * crypto (host/lib/crypto.mjs) exactly like the teacher would:
  *
  *   - ping / status
- *   - setkey first-set wins, second setkey rejected
+ *   - setkey first-set, then overwrite allowed (by design)
  *   - forward lock (valid signature) -> locked
  *   - forward unlock (valid signature) -> unlocked
  *   - forward with bad signature -> rejected
@@ -20,6 +20,7 @@ import net from "net";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import crypto from "crypto";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -106,6 +107,8 @@ await new Promise((resolve) => {
 console.log("\nFirewall daemon mock test\n");
 
 const teacher = generateKeyPair();
+const teacher2 = generateKeyPair();
+teacher2.fp = crypto.createHash("sha256").update(teacher2.signPub).digest("hex").slice(0, 16);
 const lanOnly = (on, ttl) => ({ type: "lan-only", params: { on, ...(ttl ? { ttl } : {}) } });
 
 // ---- ping / status ----------------------------------------------------------
@@ -121,11 +124,22 @@ const lanOnly = (on, ttl) => ({ type: "lan-only", params: { on, ...(ttl ? { ttl 
 // ---- setkey -----------------------------------------------------------------
 {
 	const r = await request({ op: "setkey", signPub: teacher.signPub });
-	ok("setkey first-set wins", r.ok === true && r.keySet === true);
+	ok("setkey first-set", r.ok === true && r.keySet === true && r.keyFingerprint);
 }
 {
+	// Overwrite is by design: the daemon guards unlock via teacher signature,
+	// not by making the key hard to change.
+	const r = await request({ op: "setkey", signPub: teacher2.signPub });
+	ok("setkey overwrite allowed", r.ok === true && r.keySet === true);
+}
+{
+	const s = await request({ op: "status" });
+	ok("status key now teacher2", s.ok && s.keyFingerprint === teacher2.fp);
+}
+{
+	// put the original key back for the signature tests below
 	const r = await request({ op: "setkey", signPub: teacher.signPub });
-	ok("setkey second set rejected", r.ok === false && /already-set/.test(r.error));
+	ok("setkey back to teacher", r.ok === true);
 }
 
 // ---- lock / unlock with valid teacher signature ------------------------------

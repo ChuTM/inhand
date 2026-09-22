@@ -15,7 +15,10 @@
  *     teacher's public key — a compromised client cannot forge unlock).
  *   - Unlock (on=false) requires a valid teacher signature; students cannot
  *     unblock. TTL auto-release prevents lockouts.
- *   - First `setkey` wins; later key changes require `sudo inhand-fwctl setkey`.
+ *   - `setkey` overwrites: the teacher key may be replaced at any time. We do
+ *     not fight students who can swap keys themselves — the daemon's real
+ *     guard is that unlock requires a valid teacher signature, not that the
+ *     key is hard to change.
  *
  * Runtime: `ELECTRON_RUN_AS_NODE=1 <app executable> daemon.mjs` via the
  * LaunchDaemon installed by `install.sh -f`, or plain `node daemon.mjs` for
@@ -145,6 +148,12 @@ function writeState(state) {
 }
 function readConfig() {
 	return readJson(CONFIG_FILE, { signPub: null });
+}
+
+/** Short fingerprint of the configured teacher key (for client-side mismatch detection). */
+function keyFingerprint(pubB64) {
+	if (!pubB64) return null;
+	return crypto.createHash("sha256").update(pubB64).digest("hex").slice(0, 16);
 }
 
 // ------------------------------------------------------------------ pf engine
@@ -311,15 +320,12 @@ async function handleOp(line) {
 				deadline: state.deadline || null,
 				ttlMinutes: state.ttlMinutes || null,
 				keySet: !!cfg.signPub,
+				keyFingerprint: keyFingerprint(cfg.signPub),
 			};
 		}
 
 		case "setkey": {
 			const cfg = readConfig();
-			if (cfg.signPub) {
-				log({ action: "setkey-rejected", reason: "key-already-set" });
-				return { ok: false, error: "key-already-set (use: sudo inhand-fwctl setkey <pub>)" };
-			}
 			if (typeof req.signPub !== "string" || !/^[A-Za-z0-9+/]{40,}={0,2}$/.test(req.signPub)) {
 				return { ok: false, error: "invalid-signPub" };
 			}
@@ -328,9 +334,14 @@ async function handleOp(line) {
 			} catch {
 				return { ok: false, error: "unparseable-signPub" };
 			}
+			const oldFp = keyFingerprint(cfg.signPub);
 			writeJson(CONFIG_FILE, { signPub: req.signPub });
-			log({ action: "setkey", signPub: req.signPub.slice(0, 12) + "…" });
-			return { ok: true, keySet: true };
+			log({
+				action: "setkey",
+				from: oldFp ? oldFp.slice(0, 8) : null,
+				to: keyFingerprint(req.signPub).slice(0, 8),
+			});
+			return { ok: true, keySet: true, keyFingerprint: keyFingerprint(req.signPub) };
 		}
 
 		case "forward": {
