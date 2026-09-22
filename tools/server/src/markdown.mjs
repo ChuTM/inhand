@@ -183,7 +183,10 @@ function changelogMarkdown(commits) {
 	for (const [date, items] of byDate) {
 		md += `## ${date}\n\n`;
 		for (const c of items) {
-			md += `- [\`${c.hash}\`](${c.url}) ${escMd(c.msg)}\n`;
+			md += `- [\`${c.hash}\`](${c.url}) ${escMd(c.subject)}\n`;
+			for (const line of c.body) {
+				md += `  - ${escMd(line)}\n`;
+			}
 		}
 		md += "\n";
 	}
@@ -210,12 +213,17 @@ async function fetchChangelogMarkdown() {
 		if (!resp.ok) throw new Error(`GitHub API responded ${resp.status}`);
 		const data = await resp.json();
 		const commits = Array.isArray(data)
-			? data.map((c) => ({
-					hash: String(c.sha || "").slice(0, 7),
-					url: c.html_url || `${CHANGELOG_REPO_BASE}/commit/${c.sha}`,
-					date: String(c.commit?.author?.date || "").slice(0, 10),
-					msg: String(c.commit?.message || "").split("\n")[0] || "(no message)",
-				}))
+			? data.map((c) => {
+					const full = String(c.commit?.message || "").trim() || "(no message)";
+					const lines = full.split("\n");
+					return {
+						hash: String(c.sha || "").slice(0, 7),
+						url: c.html_url || `${CHANGELOG_REPO_BASE}/commit/${c.sha}`,
+						date: String(c.commit?.author?.date || "").slice(0, 10),
+						subject: lines[0] || "(no message)",
+						body: lines.slice(1).map((l) => l.trim()).filter(Boolean),
+					};
+				})
 			: [];
 		const md = changelogMarkdown(commits);
 		changelogCache = md;

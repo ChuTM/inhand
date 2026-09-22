@@ -28,14 +28,21 @@ function git(args) {
 	return execSync(`git -C "${REPO_ROOT}" ${args}`, { encoding: "utf8" }).trim();
 }
 
-// ---- 1. Read every commit message (hash, date, subject), newest first -------
-const log = git(`log --date=short --pretty=format:%h%x1f%ad%x1f%s`);
+// ---- 1. Read every commit message (hash, date, subject + body), newest first -------
+const log = git(`log --date=short --pretty=format:%h%x1f%ad%x1f%B`);
 const commits = log
 	.split("\n")
 	.filter(Boolean)
 	.map((line) => {
 		const [hash, date, ...rest] = line.split("\x1f");
-		return { hash, date, msg: rest.join("\x1f") || "(no message)" };
+		const full = (rest.join("\x1f") || "(no message)").trim();
+		const lines = full.split("\n");
+		return {
+			hash,
+			date,
+			subject: lines[0] || "(no message)",
+			body: lines.slice(1).map((l) => l.trim()).filter(Boolean),
+		};
 	});
 
 // ---- 3. Escape Markdown special characters in raw commit messages ----------
@@ -59,7 +66,10 @@ let md = `# Update Logs\n\nEvery commit message from the [InHand repository](${r
 for (const [date, items] of byDate) {
 	md += `## ${date}\n\n`;
 	for (const c of items) {
-		md += `- [\`${c.hash}\`](${repoBase}/commit/${c.hash}) ${escMd(c.msg)}\n`;
+		md += `- [\`${c.hash}\`](${repoBase}/commit/${c.hash}) ${escMd(c.subject)}\n`;
+		for (const line of c.body) {
+			md += `  - ${escMd(line)}\n`;
+		}
 	}
 	md += "\n";
 }
