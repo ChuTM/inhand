@@ -59,6 +59,10 @@
       {
         "from": "helper/com.inhand.fw.plist",
         "to": "helpers/com.inhand.fw.plist"
+      },
+      {
+        "from": "helper/audit.sh",
+        "to": "helpers/audit.sh"
       }
     ]
   }

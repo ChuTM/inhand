@@ -54,6 +54,16 @@
 		"restart": {
 			"description": "Restart the client service.",
 			"params": {}
+		},
+		"audit": {
+			"description": "Run a health & privilege audit on every client (app installed/signed, auto-start, Screen Recording, firewall helper) — one [PASS]/[FAIL] line per check.",
+			"params": {
+				"fix": {
+					"type": "boolean",
+					"required": false,
+					"hint": "true = attempt quick fixes (re-register launch agent, open Screen Recording settings, reinstall firewall helper)"
+				}
+			}
 		}
 	}
 }

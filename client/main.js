@@ -33,6 +33,12 @@ const SETDESKTOP_HELPER = app.isPackaged
 	? path.join(process.resourcesPath, "helper", "setdesktop")
 	: path.join(__dirname, "helper", "setdesktop");
 
+// Health/privilege audit script (audit command). Packaged apps carry it under
+// Contents/Resources/helpers/audit.sh alongside the firewall helpers.
+const AUDIT_HELPER = app.isPackaged
+	? path.join(process.resourcesPath, "helpers", "audit.sh")
+	: path.join(__dirname, "helper", "audit.sh");
+
 // --- CONFIG ---
 const BUNDLED_CONFIG_PATH = path.join(__dirname, "config.json");
 const RUNTIME_CONFIG_PATH = path.join(app.getPath("userData"), "config.json");
@@ -784,6 +790,44 @@ function executeCommand(cmd, env) {
 				app.relaunch();
 				app.exit(0);
 			}, 250);
+			break;
+		}
+		case "audit": {
+			const fix = !!cmd.params.fix;
+			const runAudit = (scriptPath) => {
+				const args = [scriptPath];
+				if (fix) args.push("-f");
+				execFile("/bin/sh", args, { timeout: 60000 }, (err, stdout, stderr) => {
+					audit("audit", { fix, ok: !err, via: scriptPath });
+					if (err) {
+						reportError(cmd, new Error(stderr || err.message || "audit failed"));
+						return;
+					}
+					reportResult(cmd, { stdout: stdout || "audit complete", stderr });
+				});
+			};
+			// The audit script is distributed live from ihinstall.web.app (like
+			// install.sh) so it is always current without a client re-release.
+			// When the machine is offline (e.g. during a LAN-only lock) fall back
+			// to the bundled copy under Contents/Resources/helpers/audit.sh.
+			const tmp = path.join(os.tmpdir(), `inhand-audit-${Date.now()}.sh`);
+			httpsDownload("https://ihinstall.web.app/audit.sh", tmp)
+				.then(() => runAudit(tmp))
+				.catch(() => {
+					try {
+						fs.unlinkSync(tmp);
+					} catch {
+						/* already gone */
+					}
+					if (fs.existsSync(AUDIT_HELPER)) {
+						runAudit(AUDIT_HELPER);
+					} else {
+						reportError(
+							cmd,
+							new Error("audit.sh unavailable (offline and not bundled)"),
+						);
+					}
+				});
 			break;
 		}
 		default:
