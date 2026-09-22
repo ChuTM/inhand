@@ -483,11 +483,23 @@ function handleWhitelistedCommand(cmd) {
 	const verdict = validateCommand(cmd);
 	if (!verdict.ok) {
 		audit("command-rejected", { reason: verdict.reason, cmd });
-		return { ok: false, reason: verdict.reason };
+		return { ok: false, error: verdict.reason };
+	}
+	// Count reachable registered clients. The LAN-only lock can cut the
+	// client↔host socket, after which io.emit silently drops the command —
+	// the teacher must know the command went nowhere.
+	const clientCount = activeUsers.size;
+	if (clientCount === 0) {
+		audit("command-no-clients", { type: cmd.type, params: cmd.params });
+		return {
+			ok: false,
+			error:
+				"No clients connected — the LAN-only lock may have cut this socket. Unlock this machine with: sudo sh /Library/Application Support/InHand/inhand-fwctl unlock",
+		};
 	}
 	audit("command-sent", { type: cmd.type, params: cmd.params });
 	io.emit("admin-command", makeSignedEnvelope("admin-command", { cmd }));
-	return { ok: true };
+	return { ok: true, clients: clientCount };
 }
 
 // ---------------------------------------------------------------------------

@@ -1051,3 +1051,16 @@ tbody tr:hover {
 		padding: 40px 16px 40px;
 	}
 }
+
+.copyright-overlay {
+	position: fixed;
+    bottom: 0;
+    right: 1rem;
+    z-index: 99999999;
+    font-size: 6rem;
+    font-weight: bold;
+    letter-spacing: -0.4rem;
+	opacity: 0.025;
+	pointer-events: none;
+	user-select: none;
+}

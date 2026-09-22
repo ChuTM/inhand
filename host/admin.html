@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -12,6 +13,11 @@
     <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
+
+    <div class="copyright-overlay">
+        ChuTM
+    </div>
+
     <div id="title-bar"></div>
 
     <!-- Security gate (first-run setup / unlock) — same glass language as the web login -->
@@ -25,12 +31,15 @@
 
                 <div id="setup-form" class="security-form ai-aura hidden">
                     <h2>First-time setup</h2>
-                    <p class="security-hint">Create a password. Your signing &amp; encryption keys are encrypted with it and
+                    <p class="security-hint">Create a password. Your signing &amp; encryption keys are encrypted with it
+                        and
                         stored only on this Mac.</p>
-                    <input type="password" id="setup-password" placeholder="Password (min 8 chars)" autocomplete="new-password">
+                    <input type="password" id="setup-password" placeholder="Password (min 8 chars)"
+                        autocomplete="new-password">
                     <input type="password" id="setup-password2" placeholder="Confirm password">
                     <input type="text" id="setup-school" placeholder="School name (optional)" autocomplete="off">
-                    <input type="text" id="setup-token" placeholder="Registration token (from the website)" autocomplete="off">
+                    <input type="text" id="setup-token" placeholder="Registration token (from the website)"
+                        autocomplete="off">
                     <button id="btn-setup" class="btn primary">Create &amp; Register</button>
                     <div id="setup-error" class="security-error"></div>
                 </div>
@@ -154,11 +163,12 @@
                 <a href="https://github.com/ChuTM/inhand/">View on GitHub</a>
                 <a href="https://ihinstall.web.app/">View Documentation</a>
             </div>
-            <p>&copy; 2026 AlphaBrate. All rights reserved.</p>
+            <p>&copy; 2026 ChuTM. All rights reserved.</p>
         </div>
     </div>
 
     <script src="/vendor/lucide.min.js"></script>
     <script src="/admin.script.js"></script>
 </body>
+
 </html>

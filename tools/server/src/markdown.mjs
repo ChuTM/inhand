@@ -277,7 +277,7 @@ function pageShell(title, bodyHtml, currentRoute, withSpy) {
 <main class="legal-main">
 ${bodyHtml}
 </main>
-<footer class="legal-foot">Copyright &copy; 2026 AlphaBrate. All rights reserved.</footer>
+<footer class="legal-foot">Copyright &copy; 2026 ChuTM. All rights reserved.</footer>
 ${withSpy ? '<script src="/js/legal.js" defer></script>' : ""}
 </body>
 </html>`;

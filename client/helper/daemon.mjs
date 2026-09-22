@@ -52,10 +52,13 @@ const VERSION = 1;
  * same file.
  */
 const RULES_TEXT = `# InHand LAN-only rules (auto-generated)
-block out log all
+# pass rules come FIRST: macOS pf applies the first matching rule, so a
+# leading "block out" would also kill LAN/loopback traffic and sever the
+# client<->host socket, making unlock commands unreachable.
 pass out quick to { 10/8, 172.16/12, 192.168/16, 100.64/10, 127/8, 169.254/16, 224/4, ::1/128, fe80::/10, fc00::/7, ff00::/8 } keep state
 pass out quick proto { udp tcp } to port 53 keep state
 pass out quick proto udp to port 67 keep state
+block out log all
 `;
 
 // --------------------------------------------------------------------- crypto
@@ -212,14 +215,40 @@ async function ensureAnchor() {
 		log({ error: "pf.conf missing", file: PF_CONF });
 		return false;
 	}
-	if (!new RegExp(`^\\s*${ANCHOR_LINE.replace(/"/g, '\\"')}\\s*$`, "m").test(conf)) {
+	let changed = false;
+	let next = conf;
+
+	// Loopback traffic (host<->client on the same machine) must never be
+	// filtered by the lock rules, or the client's socket to the host dies the
+	// moment LAN-only engages and unlock commands can't get through.
+	if (!/^\s*set skip on lo0\s*$/m.test(next)) {
+		const lines = next.split("\n");
+		let insertAt = lines.length;
+		for (let i = 0; i < lines.length; i++) {
+			const t = lines[i].trim();
+			if (t && !t.startsWith("#")) {
+				insertAt = i;
+				break;
+			}
+		}
+		lines.splice(insertAt, 0, "set skip on lo0");
+		next = lines.join("\n");
+		changed = true;
+	}
+
+	if (!new RegExp(`^\\s*${ANCHOR_LINE.replace(/"/g, '\\"')}\\s*$`, "m").test(next)) {
+		next = next + "\n" + ANCHOR_LINE + "\n";
+		changed = true;
+	}
+
+	if (changed) {
 		try {
 			if (!fs.existsSync(PF_CONF_BACKUP)) {
 				fs.copyFileSync(PF_CONF, PF_CONF_BACKUP);
 			}
-			fs.appendFileSync(PF_CONF, "\n" + ANCHOR_LINE + "\n", { mode: 0o644 });
+			fs.writeFileSync(PF_CONF, next + "\n", { mode: 0o644 });
 		} catch (e) {
-			log({ error: "pf.conf append failed", message: e.message });
+			log({ error: "pf.conf update failed", message: e.message });
 			return false;
 		}
 	}
