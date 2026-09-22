@@ -83,7 +83,7 @@ export async function deleteRegistration(publicIp) {
 export async function sweepExpired(now) {
 	let removed = 0;
 	for (const [ip, reg] of Object.entries(data.registrations)) {
-		if (reg.expiresAt <= now) {
+		if (reg.expiresAt && reg.expiresAt <= now) {
 			delete data.registrations[ip];
 			removed++;
 		}

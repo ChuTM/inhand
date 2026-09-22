@@ -56,8 +56,10 @@ const DEFAULTS = {
 	RP_ID: "inhand-server.vercel.app",
 	// Comma-separated list of allowed origins for WebAuthn + Firebase Auth.
 	RP_ORIGINS: "https://inhand-server.vercel.app,http://localhost:3000,http://localhost:8787,http://localhost:3001",
-	// How often a teacher must re-register to keep the registration alive
-	REGISTRATION_TTL_MS: 60 * 60 * 1000, // 1h
+	// How long a registration stays valid without a heartbeat. Schools are
+	// offline overnight/weekends, so the default is 7 days; a teacher can
+	// request longer (or infinite) per-registration via ttlMs=0.
+	REGISTRATION_TTL_MS: 7 * 24 * 60 * 60 * 1000, // 7 days
 	// Heartbeat interval advertised to the host (client re-registers this often)
 	HEARTBEAT_MS: 60 * 1000,
 	// Sweep expired registrations on this interval

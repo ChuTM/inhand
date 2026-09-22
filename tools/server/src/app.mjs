@@ -223,7 +223,18 @@ export async function createApp(config) {
 	// ---- API handlers --------------------------------------------------------
 	async function handleRegister(body, ip) {
 		const now = Date.now();
-		const ttl = Math.max(Number(body.ttlMs) || config.REGISTRATION_TTL_MS, 1);
+		// ttlMs: 0 = never expires (teacher must unregister or re-register to
+		// replace it); positive = auto-expire after that many ms (capped at one
+		// year); omitted = config default. Schools are offline overnight, so
+		// the default is now 7 days instead of 1 hour.
+		const ttlMsRaw = Number(body.ttlMs);
+		const forever = ttlMsRaw === 0;
+		const ttl = forever
+			? null
+			: Math.max(
+					ttlMsRaw > 0 ? Math.min(ttlMsRaw, 365 * 24 * 60 * 60 * 1000) : config.REGISTRATION_TTL_MS,
+					1,
+				);
 		if (typeof body.token !== "string" || body.token.length === 0) {
 			return json(resolve_res, 400, { ok: false, error: "missing token" });
 		}
@@ -240,7 +251,7 @@ export async function createApp(config) {
 		// Self-healing expiry: an expired registration is "absent", so a fresh
 		// teacher with a valid token can take over the public IP (serverless
 		// mode has no background sweeper to do this for us).
-		if (existing && existing.expiresAt <= now) {
+		if (existing && existing.expiresAt && existing.expiresAt <= now) {
 			log(`register: expired registration for ${ip} replaced`);
 			await storage.deleteRegistration(ip);
 			existing = null;
@@ -251,7 +262,7 @@ export async function createApp(config) {
 				error: "public IP already registered by another admin (one school per public IP)",
 			});
 		}
-		const expiresAt = now + ttl;
+		const expiresAt = forever ? null : now + ttl;
 		// Key rotation: carry the previous keys into the grace window so that
 		// clients still holding the old key can keep verifying for KEY_GRACE_MS.
 		let prevSignPub = null;
@@ -290,7 +301,7 @@ export async function createApp(config) {
 			ok: true,
 			registrationId: reg.registrationId,
 			heartbeatMs: config.HEARTBEAT_MS,
-			expiresInMs: ttl,
+			expiresInMs: forever ? 0 : ttl,
 		});
 	}
 
@@ -313,7 +324,7 @@ export async function createApp(config) {
 		const reg = await storage.getRegistration(ip);
 		if (!reg) return json(resolve_res, 204, "");
 		// Lazy expiry: expired registrations are deleted and reported as absent.
-		if (reg.expiresAt <= now) {
+		if (reg.expiresAt && reg.expiresAt <= now) {
 			await storage.deleteRegistration(ip);
 			return json(resolve_res, 204, "");
 		}
