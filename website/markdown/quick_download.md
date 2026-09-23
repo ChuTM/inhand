@@ -6,7 +6,7 @@ Type `./` to auto insert `ihinstall.web.app/` in the input fields for quick acce
 
 ## Installing via install.sh
 
-**install.sh is for the STUDENT CLIENT only.** Run the following command in your terminal to execute the installation script. It downloads, installs, configures and registers the student client automatically — no `sudo` required.
+**install.sh is for the STUDENT CLIENT only.** Run the following command in your terminal to execute the installation script. It downloads, installs, configures and registers the student client automatically. It asks for admin (sudo) **once** when installing the optional helpers.
 
 :::cmd Install Script (Student Client)
 sudo curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -a "___https://inhand-server.vercel.app___" -f
@@ -14,38 +14,95 @@ sudo curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -a "___https://
 
 - `-a / --api-url` sets the cloud API base URL (default `https://inhand-server.vercel.app`). Use the same URL for every student in the school.
 - The installer walks you through granting **Screen Recording** permission (required so the teacher can view this screen).
-- The service is installed per-user (`~/Library/Application Support/InHand/`) and auto-starts via a LaunchAgent. No root daemon, no world-writable directories.
-
-- `-f / --firewall` additionally installs the LAN-only helper so the teacher
-  can cut internet access while keeping the LAN working (see the README
-  "LAN-only firewall" section). It prompts for admin **once** to install a
-  single root daemon + pf anchor.
+- The main app installs per-user (`~/Library/Application Support/InHand/`) and auto-starts via a LaunchAgent. Capture + Firewall helpers live under `/Library/Application Support/InHand` (root-owned, so students cannot remove them).
+- `-f / --firewall` additionally installs the LAN-only helper so the teacher can cut internet access while keeping the LAN working. It prompts for admin **once** to install a single root daemon + pf anchor.
 - Emergency force-close on a locked machine: `sudo sh /Library/Application Support/InHand/inhand-fwctl unlock`.
 
-> [!IMPORTANT]
-> Teachers (host side) should NOT run this script. Use the separate admin app instead.
+### Release channels
+
+| Channel | Flag | Fetches |
+|---|---|---|
+| **latest** (default) | *(none)* | Latest stable release (`releases/latest/...`) |
+| **beta** | `-c beta` or `--channel=beta` | Newest pre-release — for testing upcoming builds |
+
+Beta is never picked up by the default channel, so stable machines stay on the latest stable release until you opt in.
+
+### Install variants
+
+:::cmd Install (default, latest stable)
+curl -fsSL https://ihinstall.web.app/install.sh | zsh -s --
+:::
+
+:::cmd Install + API URL
+curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -a "___https://inhand-server.vercel.app___"
+:::
+
+:::cmd Install + Firewall helper
+curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -f
+:::
+
+:::cmd Install + API URL + Firewall (recommended for schools)
+sudo curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -a "___https://inhand-server.vercel.app___" -f
+:::
+
+:::cmd Install BETA (latest pre-release)
+curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -c beta
+:::
+
+:::cmd Install BETA + API URL + Firewall
+sudo curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -a "___https://inhand-server.vercel.app___" -f -c beta
+:::
+
+### Updating
+
+`-v / --update` replaces the client. **Default = main app only** — the Capture and Firewall helpers (and their one-time macOS permissions) are never touched. Use `--scope` to opt into updating helpers explicitly.
+
+| Scope | What gets updated |
+|---|---|
+| *(default)* | Main app only |
+| `--scope=fw` | Firewall helper only |
+| `--scope=capture` | Capture helper only |
+| `--scope=fw-capture` | Firewall + Capture |
+| `--scope=all` | Main app + Capture + Firewall |
+
+:::cmd Update main app only (safe default)
+curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -v
+:::
+
+:::cmd Update firewall helper only
+curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -v --scope=fw
+:::
+
+:::cmd Update capture helper only
+curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -v --scope=capture
+:::
+
+:::cmd Update capture + firewall helpers
+curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -v --scope=fw-capture
+:::
+
+:::cmd Update everything (app + capture + firewall)
+curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -v --scope=all
+:::
+
+:::cmd Update to the latest BETA (main app only)
+curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -v -c beta
+:::
+
+:::cmd Update to BETA + all components
+curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -v -c beta --scope=all
+:::
 
 ### Uninstalling
 
-To uninstall the student client, run the following command. This will stop the service, remove all related files, and clean up any residual data.
+`-u / --uninstall` removes **all three components**: the main app (and its LaunchAgent), the Capture helper, and the Firewall helper (rules flushed + daemon unloaded). Each helper is only removed if it is installed.
 
-:::cmd Uninstall Script
+:::cmd Uninstall Script (app + capture + firewall)
 curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -u
 :::
 
-### Updating (Manually)
-
-To update the student client, re-run the installation script. It replaces the existing app while preserving your configuration.
-
-:::cmd Update Script
-curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- -v &
-:::
-
-### Updating (in-bulk via the teacher)
-
-The teacher can update **all clients at once** by sending the signed `update` command from the admin dashboard (Settings → command panel, or via a scheduled command). Each client verifies the teacher's signature, downloads the new version over HTTPS, checks the SHA-256 + code signature, and atomically replaces its own app — no `777` permissions, no `sudo`, no per-machine SSH needed.
-
-Clients can also auto-update: the cloud can publish an update manifest at `/api/v1/update` (signed with the cloud key), and every client polls it on boot and every 4 hours.
+> [!IMPORTANT]
+> Teachers (host side) should NOT run this script. Use the separate admin app instead.
 
 ## Initialization (Client)
 Retrieve the arm64 binary and mount the disk image to prepare for deployment. (Only needed if you are installing manually instead of using install.sh.)
