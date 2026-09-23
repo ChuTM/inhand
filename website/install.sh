@@ -317,6 +317,7 @@ kill_app() {
 
 kill_capture() {
   pkill -9 -f "InHand Capture" 2>/dev/null
+  pkill -9 -f "inhand-capture" 2>/dev/null
 }
 
 unload_agent() {
