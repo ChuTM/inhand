@@ -77,17 +77,6 @@
 		reader.readAsText(file, "utf-8");
 	}
 
-	// SF Symbol for the back chevron (falls back to nothing on old Electron).
-	const backIcon = document.querySelector("[data-sf='chevron.left']");
-	if (backIcon && api()?.sfSymbol) {
-		api()
-			.sfSymbol("chevron.left")
-			.then((url) => {
-				if (url && backIcon) backIcon.src = url;
-			})
-			.catch(() => {});
-	}
-
 	$("btn-save").addEventListener("click", save);
 	$("btn-import").addEventListener("click", () => $("file-input").click());
 	$("file-input").addEventListener("change", onImport);

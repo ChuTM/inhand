@@ -158,16 +158,17 @@ h1 {
 	gap: 7px;
 }
 
-/* Tintable SF Symbols: the symbol PNG is a CSS mask (alpha channel), so the
-   visible color is background-color: currentColor and state classes recolor it. */
+/* SF Symbols rendered as text by the macOS system font, so they stay
+   vector-crisp at any size and inherit color from CSS (state classes tint). */
 .sf-icon {
 	display: inline-block;
-	width: 14px;
-	height: 14px;
-	vertical-align: -3px;
-	-webkit-mask-repeat: no-repeat;
-	-webkit-mask-position: center;
-	-webkit-mask-size: contain;
+	font-family: -apple-system, "SF Pro Display", "SF Pro Text", system-ui, sans-serif;
+	font-style: normal;
+	font-weight: 500;
+	font-size: 14px;
+	line-height: 1;
+	color: currentColor;
+	vertical-align: -0.08em;
 }
 .tagline .sf-icon {
 	color: var(--ok-fg);
@@ -433,8 +434,7 @@ select {
 }
 
 .btn .sf-icon {
-	width: 14px;
-	height: 14px;
+	font-size: 14px;
 	color: currentColor;
 }
 
@@ -599,6 +599,7 @@ tbody tr:hover {
 	border-color: #000;
 }
 .view-btn .sf-icon {
+	font-size: 13px;
 	color: currentColor;
 }
 
@@ -1147,8 +1148,8 @@ tbody tr:hover {
 	filter: saturate(0.35) opacity(0.8);
 }
 .action-icon .sf-icon {
-	width: 26px;
-	height: 26px;
+	font-size: 27px;
+	line-height: 1;
 }
 
 /* transient feedback while a command is in flight / after it resolves */

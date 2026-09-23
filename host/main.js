@@ -55,6 +55,11 @@ const PORT = 7100;
 // Developer mode: launched via `npm run dev` (electron . --dev) or
 // INHAND_DEV=1. Enables DevTools, verbose socket logging and an
 // auto-provisioned test keyring. Never enabled in packaged builds.
+// Dev-only remote debugging: INHAND_CDP=<port> enables CDP on that port so the
+// admin renderer can be inspected (DOM, styles, screenshots) during development.
+if (process.env.INHAND_CDP) {
+	app.commandLine.appendSwitch("remote-debugging-port", process.env.INHAND_CDP);
+}
 const DEV_MODE =
 	process.argv.includes("--dev") || process.env.INHAND_DEV === "1";
 
@@ -830,27 +835,6 @@ server.listen(PORT, "::", () => {
 // ---------------------------------------------------------------------------
 // IPC (admin renderer <-> main). The private key never leaves this process.
 // ---------------------------------------------------------------------------
-// SF Symbols for the admin UI (real macOS symbols via Electron 44+).
-ipcMain.handle("SF_SYMBOL", (_event, name) => {
-	const symbolName = String(name);
-	// createMenuSymbol only rasterizes a tiny fixed-size template (15x13),
-	// which looks blurry when scaled up. Prefer the higher-resolution
-	// named-image renderer, then a 256px supersampled resize as fallback.
-	try {
-		const img = nativeImage.createFromNamedImage(symbolName, { width: 256, height: 256 });
-		if (img && !img.isEmpty() && img.getSize().width >= 48) return img.toDataURL();
-	} catch (e) {
-		/* fall through */
-	}
-	try {
-		const img = nativeImage.createMenuSymbol(symbolName).resize({ width: 256, height: 256, quality: "best" });
-		if (img && !img.isEmpty()) return img.toDataURL();
-	} catch (e) {
-		/* no symbol available */
-	}
-	return null;
-});
-
 ipcMain.handle("GET_SCREEN_SOURCES", async () => {
 	const sources = await desktopCapturer.getSources({
 		types: ["screen", "window"],

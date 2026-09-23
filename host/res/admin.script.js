@@ -99,53 +99,24 @@ async function loadCommandWhitelist() {
 let fwState = { locked: false, since: null, deadline: null, ttlMinutes: null, keySet: false };
 
 // ---------------------------------------------------------------------------
-// SF Symbols: replace every <i data-sf="..."> placeholder with a real macOS
-// SF Symbol fetched from the main process (nativeImage.createMenuSymbol).
+// SF Symbols: replace every <i data-sf="..."> placeholder with the matching
+// SF Symbol character from the system-font map (sf-symbols.js). The character
+// is rendered by the macOS system font, so it is vector-crisp at any size and
+// inherits color from CSS (state classes can tint it).
 // ---------------------------------------------------------------------------
-async function replaceIconsWithSfSymbols(root = document) {
-	// Replace every <i data-sf="..."> placeholder with a tintable SF Symbol.
-	// The symbol PNG becomes a CSS mask (its alpha channel), so the visible
-	// color is background-color: currentColor and state classes can recolor it
-	// (success = green, failure = red, sharing = white-on-red, ...).
-	//
-	// The CSP (style-src 'self') blocks inline style and <style> injection, but
-	// CSSOM insertRule on an external stylesheet is allowed — so each symbol's
-	// mask image is registered once as a class rule on style.css's sheet.
-	const els = Array.from(root.querySelectorAll("i[data-sf]"));
+function replaceIconsWithSfSymbols(root = document) {
+	const els = Array.from(root.querySelectorAll("[data-sf]"));
 	let replaced = 0, skipped = 0;
-	const styleSheet = document.styleSheets[0];
-	const maskCache = new Map(); // sfName -> mask class name
-	await Promise.all(
-		els.map(async (el) => {
-			const sfName = el.dataset?.sf;
-			if (!sfName) { skipped++; return; }
-			try {
-				const url = await window.electronAPI?.sfSymbol?.(sfName);
-				if (!url) { skipped++; return; }
-				let maskClass = maskCache.get(sfName);
-				if (!maskClass) {
-					maskClass = "sf-mask-" + sfName.replace(/[^a-z0-9]+/gi, "-");
-					try {
-						styleSheet.insertRule(
-							`.${maskClass} { -webkit-mask-image: url('${url}'); -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; -webkit-mask-size: contain; }`,
-							styleSheet.cssRules.length,
-						);
-						maskCache.set(sfName, maskClass);
-					} catch (e) {
-						skipped++;
-						return;
-					}
-				}
-				replaced++;
-				const icon = document.createElement("i");
-				icon.className = el.className + " " + maskClass;
-				el.replaceWith(icon);
-			} catch (e) {
-				skipped++;
-				/* keep the placeholder element */
-			}
-		}),
-	);
+	for (const el of els) {
+		const sfName = el.dataset?.sf;
+		if (!sfName) { skipped++; continue; }
+		const ch = (window.SF_SYMBOLS || {})[sfName];
+		if (!ch) { skipped++; continue; }
+		el.textContent = ch;
+		el.removeAttribute("data-sf");
+		el.classList.add("sf-icon");
+		replaced++;
+	}
 	console.log("[sf] replaced=" + replaced + " skipped=" + skipped);
 }
 

@@ -587,45 +587,20 @@ function reportFwState(patch) {
 // pinned to the very top-right corner. Text is dynamic:
 //   - teacher is viewing this screen  -> "Screen Being Viewed"
 //   - LAN-only lock active            -> "Restricted to LAN Only."
-// No app-layer background, no icon, no dot; English copy only.
-// SF Symbols via nativeImage (Electron 44+). Returns a hi-res data URL, or
-// null on older Electron so the caller falls back to a bundled SVG.
-// createMenuSymbol only rasterizes a 15x13 template (blurry when scaled), so
-// prefer the higher-resolution named-image renderer, then a 256px supersampled
-// resize as fallback.
-function sfSymbolDataUrl(symbolName) {
-	try {
-		const img = nativeImage.createFromNamedImage(symbolName, { width: 256, height: 256 });
-		if (img && !img.isEmpty() && img.getSize().width >= 48) return img.toDataURL();
-	} catch (e) {
-		/* fall through */
-	}
-	try {
-		const img = nativeImage.createMenuSymbol(symbolName).resize({ width: 256, height: 256, quality: "best" });
-		if (img && !img.isEmpty()) return img.toDataURL();
-	} catch (e) {
-		/* fall back to SVG */
-	}
-	return null;
-}
-
-// SF-Symbols-style linear icons (fallback until Electron 44 is in place).
-const OVERLAY_ICON_SVG = {
-	airplane: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>`,
-	insetRectPerson: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="4" width="19" height="13" rx="2.5"/><circle cx="12" cy="9.5" r="2.2"/><path d="M5.5 18.5c.9-2.9 3.6-4.1 6.5-4.1s5.6 1.2 6.5 4.1"/></svg>`,
+// SF Symbols characters (macOS private-use codepoints, rendered by the
+// system font) for the status overlay pill.
+const OVERLAY_SYMBOLS = {
+	viewing: "\u{101140}", // inset.filled.rectangle.and.person.filled
+	lanOnly: "\u{100453}", // airplane
 };
 
-function overlayHTML(text, iconDataUrl) {
-	const icon = iconDataUrl
-		? `<img class="icon" src="${iconDataUrl}" alt="">`
-		: OVERLAY_ICON_SVG[text === "Screen Being Viewed" ? "insetRectPerson" : "airplane"];
+function overlayHTML(text, iconChar) {
 	return `<!doctype html><html><head><meta charset="utf-8"><style>
 html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overflow:hidden;}
 .wrap{display:flex;align-items:center;justify-content:flex-end;height:100%;font:600 13px "SF Pro Display",-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;user-select:none;}
 .pill{display:flex;align-items:center;gap:7px;background:#ffffff;border-radius:999px;padding:6px 16px;color:#1d1d1f;letter-spacing:-0.01em;white-space:nowrap;border:1px solid rgba(0,0,0,0.06);box-shadow:inset 0 0 0 0.5px rgba(255,255,255,0.9),inset 0 -2px 6px rgba(255,255,255,0.4),0 1px 2px rgba(0,0,0,0.05),0 4px 16px rgba(0,0,0,0.08),0 8px 32px rgba(0,0,0,0.06);}
-.pill .icon{width:13px;height:13px;flex:none;}
-.pill svg{width:13px;height:13px;flex:none;display:block;}
-</style></head><body><div class="wrap"><span class="pill">${icon}${text}</span></div></body></html>`;
+.pill .icon{font-size:13px;line-height:1;flex:none;font-style:normal;}
+</style></head><body><div class="wrap"><span class="pill"><i class="icon">${iconChar}</i>${text}</span></div></body></html>`;
 }
 
 let lanOnlyOverlay = null;
@@ -656,8 +631,7 @@ function setViewing(v) {
 
 function showLanOnlyOverlay(text) {
 	if (lanOnlyOverlay && !lanOnlyOverlay.isDestroyed()) return;
-	const symbol = text === "Screen Being Viewed" ? "inset.filled.rectangle.and.person.filled" : "airplane";
-	const iconDataUrl = sfSymbolDataUrl(symbol);
+	const iconChar = text === "Screen Being Viewed" ? OVERLAY_SYMBOLS.viewing : OVERLAY_SYMBOLS.lanOnly;
 	try {
 		const { workArea } = screen.getPrimaryDisplay();
 		const W = 460;
@@ -682,7 +656,7 @@ function showLanOnlyOverlay(text) {
 		});
 		lanOnlyOverlay.setAlwaysOnTop(true, "screen-saver");
 		lanOnlyOverlay.loadURL(
-			"data:text/html;charset=utf-8," + encodeURIComponent(overlayHTML(text, iconDataUrl)),
+			"data:text/html;charset=utf-8," + encodeURIComponent(overlayHTML(text, iconChar)),
 		);
 		// Click-through: the strip never blocks clicks on anything underneath.
 		lanOnlyOverlay.setIgnoreMouseEvents(true, { forward: true });

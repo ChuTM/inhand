@@ -3,7 +3,6 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("electronAPI", {
 	// Screen sources (admin dashboard)
 	getScreenSources: () => ipcRenderer.invoke("GET_SCREEN_SOURCES"),
-	sfSymbol: (name) => ipcRenderer.invoke("SF_SYMBOL", name),
 	handleDoubleClick: () => ipcRenderer.send("window-handle-double-click"),
 
 	// Share windows
