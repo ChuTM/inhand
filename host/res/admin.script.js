@@ -103,8 +103,10 @@ let fwState = { locked: false, since: null, deadline: null, ttlMinutes: null, ke
 // SF Symbol fetched from the main process (nativeImage.createMenuSymbol).
 // ---------------------------------------------------------------------------
 async function replaceIconsWithSfSymbols(root = document) {
-	// Replace every <i data-sf="..."> placeholder with a real SF Symbol image
-	// fetched from the main process (nativeImage.createMenuSymbol).
+	// Replace every <i data-sf="..."> placeholder with a tintable SF Symbol.
+	// The symbol PNG becomes a CSS mask (its alpha channel), so the visible
+	// color is background-color: currentColor and state classes can recolor it
+	// (success = green, failure = red, sharing = white-on-red, ...).
 	const els = Array.from(root.querySelectorAll("i[data-sf]"));
 	let replaced = 0, skipped = 0;
 	await Promise.all(
@@ -115,12 +117,11 @@ async function replaceIconsWithSfSymbols(root = document) {
 				const url = await window.electronAPI?.sfSymbol?.(sfName);
 				if (url) {
 					replaced++;
-					const img = document.createElement("img");
-					img.src = url;
-					img.alt = "";
-					img.className = el.className;
-					img.style.cssText = "width:14px;height:14px;vertical-align:-3px;";
-					el.replaceWith(img);
+					const icon = document.createElement("i");
+					icon.className = el.className;
+					icon.style.webkitMaskImage = `url('${url}')`;
+					icon.style.backgroundColor = "currentColor";
+					el.replaceWith(icon);
 				} else { skipped++; }
 			} catch (e) {
 				skipped++;
@@ -201,6 +202,10 @@ async function handleActionClick(type, card) {
 		if (!ok) {
 			card.classList.add("failed");
 			setTimeout(() => card.classList.remove("failed"), 500);
+		} else {
+			// fly animation finished -> flash green so the teacher sees it worked
+			card.classList.add("success");
+			setTimeout(() => card.classList.remove("success"), 1600);
 		}
 	}
 }

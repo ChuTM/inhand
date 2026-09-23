@@ -588,14 +588,23 @@ function reportFwState(patch) {
 //   - teacher is viewing this screen  -> "Screen Being Viewed"
 //   - LAN-only lock active            -> "Restricted to LAN Only."
 // No app-layer background, no icon, no dot; English copy only.
-// SF Symbols via nativeImage.createMenuSymbol (Electron 44+). Returns a data
-// URL, or null on older Electron so the caller falls back to a bundled SVG.
+// SF Symbols via nativeImage (Electron 44+). Returns a hi-res data URL, or
+// null on older Electron so the caller falls back to a bundled SVG.
+// createMenuSymbol only rasterizes a 15x13 template (blurry when scaled), so
+// prefer the higher-resolution named-image renderer, then a 256px supersampled
+// resize as fallback.
 function sfSymbolDataUrl(symbolName) {
 	try {
-		const img = nativeImage.createMenuSymbol(symbolName);
+		const img = nativeImage.createFromNamedImage(symbolName, { width: 256, height: 256 });
+		if (img && !img.isEmpty() && img.getSize().width >= 48) return img.toDataURL();
+	} catch (e) {
+		/* fall through */
+	}
+	try {
+		const img = nativeImage.createMenuSymbol(symbolName).resize({ width: 256, height: 256, quality: "best" });
 		if (img && !img.isEmpty()) return img.toDataURL();
 	} catch (e) {
-		/* older Electron — fall back to SVG */
+		/* fall back to SVG */
 	}
 	return null;
 }

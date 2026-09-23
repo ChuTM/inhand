@@ -833,14 +833,17 @@ server.listen(PORT, "::", () => {
 // SF Symbols for the admin UI (real macOS symbols via Electron 44+).
 ipcMain.handle("SF_SYMBOL", (_event, name) => {
 	const symbolName = String(name);
+	// createMenuSymbol only rasterizes a tiny fixed-size template (15x13),
+	// which looks blurry when scaled up. Prefer the higher-resolution
+	// named-image renderer, then a 256px supersampled resize as fallback.
 	try {
-		const img = nativeImage.createMenuSymbol(symbolName);
-		if (img && !img.isEmpty()) return img.toDataURL();
+		const img = nativeImage.createFromNamedImage(symbolName, { width: 256, height: 256 });
+		if (img && !img.isEmpty() && img.getSize().width >= 48) return img.toDataURL();
 	} catch (e) {
-		/* fall through to the legacy API */
+		/* fall through */
 	}
 	try {
-		const img = nativeImage.createFromNamedImage(symbolName);
+		const img = nativeImage.createMenuSymbol(symbolName).resize({ width: 256, height: 256, quality: "best" });
 		if (img && !img.isEmpty()) return img.toDataURL();
 	} catch (e) {
 		/* no symbol available */
