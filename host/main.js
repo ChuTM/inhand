@@ -832,11 +832,18 @@ server.listen(PORT, "::", () => {
 // ---------------------------------------------------------------------------
 // SF Symbols for the admin UI (real macOS symbols via Electron 44+).
 ipcMain.handle("SF_SYMBOL", (_event, name) => {
+	const symbolName = String(name);
 	try {
-		const img = nativeImage.createMenuSymbol(String(name));
+		const img = nativeImage.createMenuSymbol(symbolName);
 		if (img && !img.isEmpty()) return img.toDataURL();
 	} catch (e) {
-		/* older Electron — renderer keeps lucide fallback */
+		/* fall through to the legacy API */
+	}
+	try {
+		const img = nativeImage.createFromNamedImage(symbolName);
+		if (img && !img.isEmpty()) return img.toDataURL();
+	} catch (e) {
+		/* no symbol available */
 	}
 	return null;
 });

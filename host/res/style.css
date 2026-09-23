@@ -158,7 +158,7 @@ h1 {
 	gap: 7px;
 }
 
-.tagline .lucide-icon {
+.tagline .sf-icon {
 	color: var(--ok-fg);
 }
 
@@ -421,7 +421,7 @@ select {
 	border-color: #e02c23;
 }
 
-.btn .lucide-icon {
+.btn .sf-icon {
 	color: currentColor;
 }
 
@@ -585,7 +585,7 @@ tbody tr:hover {
 	background: #000;
 	border-color: #000;
 }
-.view-btn .lucide-icon {
+.view-btn .sf-icon {
 	color: currentColor;
 }
 
@@ -1133,7 +1133,7 @@ tbody tr:hover {
 .action-card[data-action="lan-only"]:not(.is-locked) .action-icon {
 	filter: saturate(0.35) opacity(0.8);
 }
-.action-icon .lucide-icon {
+.action-icon .sf-icon {
 	width: 26px;
 	height: 26px;
 }

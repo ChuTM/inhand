@@ -99,28 +99,17 @@ async function loadCommandWhitelist() {
 let fwState = { locked: false, since: null, deadline: null, ttlMinutes: null, keySet: false };
 
 // ---------------------------------------------------------------------------
-// SF Symbols: replace lucide icons with real macOS SF Symbols via main process.
-// Falls back to the lucide icon when the symbol is unavailable.
+// SF Symbols: replace every <i data-sf="..."> placeholder with a real macOS
+// SF Symbol fetched from the main process (nativeImage.createMenuSymbol).
 // ---------------------------------------------------------------------------
-const LUCIDE_TO_SF = {
-	"book-lock": "lock.book",
-	"shield-check": "checkmark.shield",
-	monitor: "desktopcomputer",
-	"monitor-off": "xmark",
-	send: "airplane",
-	eye: "eye",
-};
-
 async function replaceIconsWithSfSymbols(root = document) {
-	// lucide replaces <i data-lucide> with <svg class="lucide lucide-<name> ...">,
-	// so match both the raw tag and the rendered svg.
-	const els = Array.from(root.querySelectorAll("i[data-lucide], svg.lucide-icon, svg[class*='lucide-']"));
+	// Replace every <i data-sf="..."> placeholder with a real SF Symbol image
+	// fetched from the main process (nativeImage.createMenuSymbol).
+	const els = Array.from(root.querySelectorAll("i[data-sf]"));
 	let replaced = 0, skipped = 0;
 	await Promise.all(
 		els.map(async (el) => {
-			const cls = el.getAttribute("class") || "";
-			const name = el.dataset?.lucide || (cls.match(/lucide-([a-z0-9-]+)/) || [])[1];
-			const sfName = name && LUCIDE_TO_SF[name];
+			const sfName = el.dataset?.sf;
 			if (!sfName) { skipped++; return; }
 			try {
 				const url = await window.electronAPI?.sfSymbol?.(sfName);
@@ -135,7 +124,7 @@ async function replaceIconsWithSfSymbols(root = document) {
 				} else { skipped++; }
 			} catch (e) {
 				skipped++;
-				/* keep lucide icon */
+				/* keep the placeholder element */
 			}
 		}),
 	);
@@ -154,7 +143,7 @@ function buildActionCards() {
 		card.dataset.action = type;
 		card.title = def.description || "";
 		card.innerHTML = `
-			<span class="action-icon"><span class="plane-wrap"><i data-lucide="send" class="lucide-icon"></i></span></span>
+			<span class="action-icon"><span class="plane-wrap"><i data-sf="airplane" class="sf-icon"></i></span></span>
 			<span class="action-name"></span>
 			<span class="action-state" role="status" aria-label="off"></span>
 		`;
@@ -169,16 +158,13 @@ function buildActionCards() {
 		card.dataset.action = "password-book";
 		card.title = "Import or edit the student password book (used when clients need sudo to update)";
 		card.innerHTML = `
-			<span class="action-icon"><span class="plane-wrap"><i data-lucide="book-lock" class="lucide-icon"></i></span></span>
+			<span class="action-icon"><span class="plane-wrap"><i data-sf="lock" class="sf-icon"></i></span></span>
 			<span class="action-name">Password Book</span>
 			<span class="action-state" role="status" aria-label=""></span>
 		`;
 		grid.appendChild(card);
 	}
-	if (window.lucide) {
-		lucide.createIcons({ attrs: { class: "lucide-icon", "stroke-width": 1.5 } });
-		replaceIconsWithSfSymbols();
-	}
+replaceIconsWithSfSymbols();
 	updateActionStates();
 }
 
@@ -420,14 +406,11 @@ async function startScreenShare() {
 			);
 		}
 
-		btn.innerHTML = `<i data-lucide="monitor-off"></i><span>Stop Sharing</span>`;
+		btn.innerHTML = `<i data-sf="xmark"></i><span>Stop Sharing</span>`;
 		btn.classList.add("sharing");
 		selector.classList.add("hidden");
 		status.classList.remove("hidden");
-		lucide.createIcons({
-			attrs: { class: "lucide-icon", "stroke-width": 1.5 },
-		});
-		replaceIconsWithSfSymbols();
+replaceIconsWithSfSymbols();
 	} catch (err) {
 		console.error("Failed to start screen share:", err);
 		alert("Failed to start screen sharing: " + err.message);
@@ -450,14 +433,11 @@ async function stopScreenShare() {
 	}
 
 	isSharing = false;
-	btn.innerHTML = `<i data-lucide="monitor"></i><span>Start Sharing</span>`;
+	btn.innerHTML = `<i data-sf="desktopcomputer"></i><span>Start Sharing</span>`;
 	btn.classList.remove("sharing");
 	selector.classList.remove("hidden");
 	status.classList.add("hidden");
-	lucide.createIcons({
-		attrs: { class: "lucide-icon", "stroke-width": 1.5 },
-	});
-		replaceIconsWithSfSymbols();
+replaceIconsWithSfSymbols();
 }
 
 // A student share window asks to receive the teacher's broadcast.
@@ -607,7 +587,7 @@ async function fetchStatus() {
                             <td class="timestamp">${esc(device.lastSeen || device.firstSeen)}</td>
                             <td>
                                 ${isOnline
-									? `<button class="view-btn" data-action="view" data-name="${esc(device.name)}" data-sid="${esc(device.socketId)}"><i data-lucide="eye"></i> View Screen</button>`
+									? `<button class="view-btn" data-action="view" data-name="${esc(device.name)}" data-sid="${esc(device.socketId)}"><i data-sf="eye"></i> View Screen</button>`
 									: `<button class="btn-remove" data-action="remove" data-name="${esc(device.name)}" title="Remove History">Remove</button>`}
                             </td>
                         </tr>
@@ -620,12 +600,7 @@ async function fetchStatus() {
 		const count = document.getElementById("client-count");
 		if (count) count.textContent = data.length;
 
-		if (window.lucide) {
-			lucide.createIcons({
-				attrs: { class: 'lucide-icon', 'stroke-width': 1.5 }
-			});
-		replaceIconsWithSfSymbols();
-		}
+replaceIconsWithSfSymbols();
 	} catch (err) {
 		console.error("Failed to fetch status:", err);
 	}
