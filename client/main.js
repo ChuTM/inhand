@@ -595,7 +595,7 @@ function showLanOnlyOverlay(text) {
 		const { workArea } = screen.getPrimaryDisplay();
 		const W = 460;
 		const H = 46;
-		const M = 8; // 距屏幕右上角边距
+		const M = 8; // margin from the top-right corner of the screen
 		lanOnlyOverlay = new BrowserWindow({
 			width: W,
 			height: H,

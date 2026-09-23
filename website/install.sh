@@ -76,34 +76,34 @@ SCRIPT_VERSION="2.0.4"
 INHAND_LOGO_SMALL=$(cat <<'SMALL'
                                                                
                                                            ,,  
-`7MMF'            `7MMF'  `7MMF'                         `7MM  
-  MM                MM      MM                             MM  
-  MM  `7MMpMMMb.    MM      MM   ,6"Yb.  `7MMpMMMb.   ,M""bMM  
-  MM    MM    MM    MMmmmmmmMM  8)   MM    MM    MM ,AP    MM  
-  MM    MM    MM    MM      MM   ,pm9MM    MM    MM 8MI    MM  
-  MM    MM    MM    MM      MM  8M   MM    MM    MM `Mb    MM  
-.JMML..JMML  JMML..JMML.  .JMML.`Moo9^Yo..JMML  JMML.`Wbmd"MML.
+`7MMF'             `7MMF'  `7MMF'                         `7MM  
+  MM                 MM      MM                             MM  
+  MM  `7MMpMMMb.     MM      MM   ,6"Yb.  `7MMpMMMb.   ,M""bMM  
+  MM    MM    MM     MMmmmmmmMM  8)   MM    MM    MM ,AP    MM  
+  MM    MM    MM     MM      MM   ,pm9MM    MM    MM 8MI    MM  
+  MM    MM    MM     MM      MM  8M   MM    MM    MM `Mb    MM  
+.JMML..JMML  JMML. .JMML.  .JMML.`Moo9^Yo..JMML  JMML.`Wbmd"MML.
                                                                
 SMALL
 )
 INHAND_LOGO_BIG=$(cat <<'BIG'
                                                                                                                                                                   
- 8.   8888 b.             8 8        8888        8          .8.          b.             8 8   888888888o.      
- 8.   8888 888o.          8 8        8888        8         .888.         888o.          8 8   8888    `^888.   
- 8.   8888 Y88888o.       8 8        8888        8        :88888.        Y88888o.       8 8   8888        `88. 
- 8.   8888 .`Y888888o.    8 8        8888        8       . `88888.       .`Y888888o.    8 8   8888         `88 
- 8.   8888 8o. `Y888888o. 8 8        8888        8      .8. `88888.      8o. `Y888888o. 8 8   8888          88 
- 8.   8888 8`Y8o. `Y88888o8 8        8888        8     .8`8. `88888.     8`Y8o. `Y88888o8 8   8888          88 
- 8.   8888 8   `Y8o. `Y8888 8        8888888888888    .8' `8. `88888.    8   `Y8o. `Y8888 8   8888         ,88 
- 8.   8888 8      `Y8o. `Y8 8        8888        8   .8'   `8. `88888.   8      `Y8o. `Y8 8   8888        ,88' 
- 8.   8888 8         `Y8o.` 8        8888        8  .888888888. `88888.  8         `Y8o.` 8   8888    ,o88P'   
- 8.   8888 8            `Yo 8        8888        8 .8'       `8. `88888. 8            `Yo 8   888888888P'      
+ 88888888.   888b.             8 8        88888         888           .8.           888b.             8 8   888888888o.      
+  888888.    888888o.          8 8        88888         888          .888.          888888o.          8 8   8888    `^888.   
+   8888.     888Y88888o.       8 8        88888         888         :88888.         888Y88888o.       8 8   8888        `88. 
+   8888.     888.`Y888888o.    8 8        88888         888        . `88888.        888.`Y888888o.    8 8   8888         `88 
+   8888.     8888o. `Y888888o. 8 8        8888888888888 888       .8. `88888.       8888o. `Y888888o. 8 8   8888          88 
+   8888.     8888`Y8o. `Y88888o8 8        88888         888      .8`8. `88888.      8888`Y8o. `Y88888o8 8   8888          88 
+   8888.     8888   `Y8o. `Y8888 8        88888         888     .8' `8. `88888.     8888   `Y8o. `Y8888 8   8888         ,88 
+   8888.     8888      `Y8o. `Y8 8        88888         888    .8'   `8. `88888.    8888      `Y8o. `Y8 8   8888        ,88' 
+  888888.    8888         `Y8o.` 8        88888         888   .888888888. `88888.   8888         `Y8o.` 8   8888    ,o88P'   
+ 88888888.   8888            `Yo 8        88888         888  .8'       `8. `88888.  8888            `Yo 8   888888888P'      
                        
 BIG
 )
 INHAND_LOGO="$INHAND_LOGO_BIG"
 
-# 按终端宽度选 logo：>=170 宽版(162ch) | >=70 窄版(63ch) | 否则纯文字
+# Pick logo by terminal width: >=170 big (162ch) | >=70 small (63ch) | else plain text
 choose_logo() {
   local cols="${COLUMNS:-}"
   if [ -z "$cols" ] || [ "$cols" -lt 1 ]; then
@@ -128,22 +128,41 @@ print_banner() {
   echo ""
 }
 
-# HEAD 拿文件大小；返回形如 "92.9 MB"（失败则空）
+# HEAD content-length -> "92.9 MB" (empty on failure)
 dmg_size() {
   curl -fsSI "$1" 2>/dev/null | awk -F': ' 'tolower($1)=="content-length" {printf "%.1f MB", $2/1048576}'
 }
 
-# 带进度条的下载：curl --progress-bar 单行更新，失败返回非 0
+# Download with a live progress bar showing percent + received/total MB.
+# Parses curl's stderr progress rows (\r-separated): $1=%Total, $2=Total bytes,
+# $4=Received bytes. Returns curl's exit code via zsh pipestatus.
 fetch_with_progress() {
   local url="$1" out="$2" label="$3"
   local size; size="$(dmg_size "$url")"
   [ -n "$size" ] || size="size unknown"
   echo ""
   echo "  ${C_BLUE}↓ Downloading ${label}${C_RESET}  ${C_DIM}(${size})${C_RESET}"
-  curl -fL --progress-bar -o "$out" "$url"
+  curl -fL -o "$out" "$url" 2>&1 | awk '
+    function bar(p,   i, s) {
+      s = ""
+      n = int(p / 100 * 24)
+      for (i = 0; i < 24; i++) s = s (i < n ? "#" : "-")
+      return s
+    }
+    {
+      sub(/.*\r/, "", $0)
+      if (NF >= 4 && $1 ~ /^[0-9]+$/) {
+        printf "\r  [%s] %3d%%  %s / %s  ", bar($1), $1, $4, $2
+        fflush()
+      }
+    }
+    END { printf "\r  [%s] 100%%  %s / %s  \n", bar(100), $4, $2 }
+  '
+  local rc="${pipestatus[1]:-${pipestatus[-1]}}"
+  return "$rc"
 }
 
-# 目标版本：beta 用已解析的 BETA_TAG，latest 用 GitHub releases/latest
+# Target version: BETA_TAG for beta, GitHub releases/latest for stable
 resolve_target_version() {
   if [ "$CHANNEL" = "beta" ]; then
     TARGET_VERSION="$BETA_TAG"
