@@ -73,17 +73,54 @@ C_YELLOW='\033[1;33m'
 C_DIM='\033[2m'
 SCRIPT_VERSION="2.0.4"
 
-INHAND_LOGO=$(cat <<'EOF'
-  _   _       _           _
- | | (_)_ __ | |__   __ _| |_
- | | | | '_ \| '_ \ / _` | __|
- | |_| | | | | | | (_| | |_
-  \___/|_| |_|_| |_|\__,_|\__|
-EOF
+INHAND_LOGO_SMALL=$(cat <<'SMALL'
+                                                               
+                                                           ,,  
+`7MMF'            `7MMF'  `7MMF'                         `7MM  
+  MM                MM      MM                             MM  
+  MM  `7MMpMMMb.    MM      MM   ,6"Yb.  `7MMpMMMb.   ,M""bMM  
+  MM    MM    MM    MMmmmmmmMM  8)   MM    MM    MM ,AP    MM  
+  MM    MM    MM    MM      MM   ,pm9MM    MM    MM 8MI    MM  
+  MM    MM    MM    MM      MM  8M   MM    MM    MM `Mb    MM  
+.JMML..JMML  JMML..JMML.  .JMML.`Moo9^Yo..JMML  JMML.`Wbmd"MML.
+                                                               
+SMALL
 )
+INHAND_LOGO_BIG=$(cat <<'BIG'
+                                                                                                                                                                  
+ 8.   8888 b.             8 8        8888        8          .8.          b.             8 8   888888888o.      
+ 8.   8888 888o.          8 8        8888        8         .888.         888o.          8 8   8888    `^888.   
+ 8.   8888 Y88888o.       8 8        8888        8        :88888.        Y88888o.       8 8   8888        `88. 
+ 8.   8888 .`Y888888o.    8 8        8888        8       . `88888.       .`Y888888o.    8 8   8888         `88 
+ 8.   8888 8o. `Y888888o. 8 8        8888        8      .8. `88888.      8o. `Y888888o. 8 8   8888          88 
+ 8.   8888 8`Y8o. `Y88888o8 8        8888        8     .8`8. `88888.     8`Y8o. `Y88888o8 8   8888          88 
+ 8.   8888 8   `Y8o. `Y8888 8        8888888888888    .8' `8. `88888.    8   `Y8o. `Y8888 8   8888         ,88 
+ 8.   8888 8      `Y8o. `Y8 8        8888        8   .8'   `8. `88888.   8      `Y8o. `Y8 8   8888        ,88' 
+ 8.   8888 8         `Y8o.` 8        8888        8  .888888888. `88888.  8         `Y8o.` 8   8888    ,o88P'   
+ 8.   8888 8            `Yo 8        8888        8 .8'       `8. `88888. 8            `Yo 8   888888888P'      
+                       
+BIG
+)
+INHAND_LOGO="$INHAND_LOGO_BIG"
+
+# 按终端宽度选 logo：>=170 宽版(162ch) | >=70 窄版(63ch) | 否则纯文字
+choose_logo() {
+  local cols="${COLUMNS:-}"
+  if [ -z "$cols" ] || [ "$cols" -lt 1 ]; then
+    cols="$(tput cols 2>/dev/null || echo 80)"
+  fi
+  if [ "$cols" -ge 170 ]; then
+    INHAND_LOGO="$INHAND_LOGO_BIG"
+  elif [ "$cols" -ge 70 ]; then
+    INHAND_LOGO="$INHAND_LOGO_SMALL"
+  else
+    INHAND_LOGO="InHand"
+  fi
+}
 
 print_banner() {
   local mode="$1"
+  choose_logo
   printf "\n${C_CYAN}%s${C_RESET}\n" "$INHAND_LOGO"
   echo ""
   echo "${C_BLUE}InHand Student Client${C_RESET}  ${C_YELLOW}v${TARGET_VERSION}${C_RESET}  (${CHANNEL} channel)"
