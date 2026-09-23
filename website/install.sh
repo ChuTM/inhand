@@ -62,6 +62,63 @@ CAPTURE_APP_PATH="$CAPTURE_DIR/$CAPTURE_APP_NAME"
 CAPTURE_DMG_URL="https://github.com/ChuTM/inhand/releases/latest/download/InHand-Capture-arm64.dmg"
 INSTALL_HINT_CAPTURE='sudo curl -fsSL https://ihinstall.web.app/install.sh | zsh -s -- --scope=capture'
 
+# =============================================================================
+#  UI helpers: banner + progress downloads
+# =============================================================================
+C_RESET='\033[0m'
+C_CYAN='\033[1;36m'
+C_BLUE='\033[1;34m'
+C_GREEN='\033[1;32m'
+C_YELLOW='\033[1;33m'
+C_DIM='\033[2m'
+SCRIPT_VERSION="2.0.4"
+
+INHAND_LOGO=$(cat <<'EOF'
+  _   _       _           _
+ | | (_)_ __ | |__   __ _| |_
+ | | | | '_ \| '_ \ / _` | __|
+ | |_| | | | | | | (_| | |_
+  \___/|_| |_|_| |_|\__,_|\__|
+EOF
+)
+
+print_banner() {
+  local mode="$1"
+  printf "\n${C_CYAN}%s${C_RESET}\n" "$INHAND_LOGO"
+  echo ""
+  echo "${C_BLUE}InHand Student Client${C_RESET}  ${C_YELLOW}v${TARGET_VERSION}${C_RESET}  (${CHANNEL} channel)"
+  echo "  Mode: ${mode}   Script: v${SCRIPT_VERSION}"
+  echo ""
+}
+
+# HEAD 拿文件大小；返回形如 "92.9 MB"（失败则空）
+dmg_size() {
+  curl -fsSI "$1" 2>/dev/null | awk -F': ' 'tolower($1)=="content-length" {printf "%.1f MB", $2/1048576}'
+}
+
+# 带进度条的下载：curl --progress-bar 单行更新，失败返回非 0
+fetch_with_progress() {
+  local url="$1" out="$2" label="$3"
+  local size; size="$(dmg_size "$url")"
+  [ -n "$size" ] || size="size unknown"
+  echo ""
+  echo "  ${C_BLUE}↓ Downloading ${label}${C_RESET}  ${C_DIM}(${size})${C_RESET}"
+  curl -fL --progress-bar -o "$out" "$url"
+}
+
+# 目标版本：beta 用已解析的 BETA_TAG，latest 用 GitHub releases/latest
+resolve_target_version() {
+  if [ "$CHANNEL" = "beta" ]; then
+    TARGET_VERSION="$BETA_TAG"
+  else
+    TARGET_VERSION="$(curl -fsSL "https://api.github.com/repos/ChuTM/inhand/releases/latest" 2>/dev/null \
+      | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("tag_name",""))
+except: print("")' 2>/dev/null)"
+    [ -z "$TARGET_VERSION" ] && TARGET_VERSION="latest"
+  fi
+}
+
 usage() {
   cat <<'EOF'
 Usage: bash install.sh [options]
@@ -156,6 +213,15 @@ print(rs[0]["tag_name"] if rs else "")' 2>/dev/null)"
   DMG_URL="https://github.com/ChuTM/inhand/releases/download/$BETA_TAG/InHand-arm64.dmg"
   CAPTURE_DMG_URL="https://github.com/ChuTM/inhand/releases/download/$BETA_TAG/InHand-Capture-arm64.dmg"
   echo "[INFO] Beta channel active - using pre-release tag $BETA_TAG"
+fi
+
+# --- Banner + target version ---
+TARGET_VERSION=""
+if [ "$MODE" = "uninstall" ]; then
+  print_banner "Uninstall"
+else
+  resolve_target_version
+  print_banner "$MODE"
 fi
 
 # --- Apple Silicon Check (install and update only) ---
@@ -296,11 +362,11 @@ install_capture_helper() {
   local TMP="$TMPDIR/inhand-capture-install"
   mkdir -p "$TMP"
   local CAPTURE_DMG="$TMP/Capture-arm64.dmg"
-  curl -fsSL -o "$CAPTURE_DMG" "$CAPTURE_DMG_URL" || {
+  if ! fetch_with_progress "$CAPTURE_DMG_URL" "$CAPTURE_DMG" "InHand Capture"; then
     echo "[ERROR] Capture download failed: $CAPTURE_DMG_URL"
     rm -rf "$TMP"
     return 1
-  }
+  fi
   local ATTACH_OUT; ATTACH_OUT="$(hdiutil attach "$CAPTURE_DMG" -nobrowse 2>&1)"
   local VOLUME; VOLUME="$(printf '%s\n' "$ATTACH_OUT" | grep -oE '/Volumes/[^[:space:]].*' | tail -1 | sed 's/[[:space:]]*$//')"
   if [ -z "$VOLUME" ] || [ ! -d "$VOLUME" ]; then
@@ -364,14 +430,13 @@ install_main_app() {
   require_sudo
   mkdir -p "$INSTALL_DIR"
 
-  echo "[INFO] Downloading InHand..."
   local INSTALL_TMP; INSTALL_TMP="$(mktemp -d "${TMPDIR:-/tmp}/inhand-install.XXXXXX")"
   local DMG_FILE="$INSTALL_TMP/InHand-arm64.dmg"
-  curl -fsSL -o "$DMG_FILE" "$DMG_URL" || {
+  if ! fetch_with_progress "$DMG_URL" "$DMG_FILE" "InHand Student ${TARGET_VERSION}"; then
     echo "[ERROR] Download failed: $DMG_URL"
     rm -rf "$INSTALL_TMP"
     exit 1
-  }
+  fi
   local ATTACH_OUT; ATTACH_OUT="$(hdiutil attach "$DMG_FILE" -nobrowse 2>&1)"
   local ATTACH_RC=$?
   if [ $ATTACH_RC -ne 0 ]; then
