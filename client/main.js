@@ -582,6 +582,8 @@ function updateOverlay() {
 	showLanOnlyOverlay(text);
 }
 
+ipcMain.on("OVERLAY_VIEWING", (_e, v) => setViewing(!!v));
+
 function setViewing(v) {
 	overlayState.viewing = !!v;
 	updateOverlay();
@@ -1476,7 +1478,8 @@ function connectSocket() {
 		stopShareWindowsForMode("teacher-view");
 		stopShareWindowsForMode("student-share");
 		createShareWindow("student-share", env.p.teacherId, null, true);
-		setViewing(true);
+		// Do NOT claim "Screen Being Viewed" here: the stream may never connect.
+		// The share window reports OVERLAY_VIEWING only once WebRTC is live.
 	});
 
 	socket.on("stop-student-stream", (env) => {

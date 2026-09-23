@@ -5,6 +5,7 @@ let targetId = null;
 let serverUrl = null;
 let localStream = null;
 let captureWs = null;
+let streamLive = false;
 
 const video = document.getElementById("remote-video");
 const connecting = document.getElementById("connecting");
@@ -56,10 +57,21 @@ async function init() {
 		} else if (mode === "student-share" && teacherId) {
 			currentMode = "student-share";
 			targetId = teacherId;
-			// Show the small "being viewed" tag instead of a big black window
+			// Request phase: say "requesting", never "viewing" until live.
 			document.body.classList.add("notice-mode");
+			const reqTag = document.getElementById("notice-text");
+			if (reqTag) reqTag.textContent = "Teacher is requesting your screen";
 			document.getElementById("notice-tag").classList.remove("hidden");
 			startStudentShare(teacherId);
+			// Give up after 15s if WebRTC never goes live.
+			setTimeout(() => {
+				if (!streamLive && peerConnection) {
+					const t = document.getElementById("notice-text");
+					if (t) t.textContent = "Could not reach the teacher. Please try again.";
+					window.electronAPI?.setOverlayViewing?.(false);
+					setTimeout(stopShare, 2500);
+				}
+			}, 15000);
 		} else {
 			showConnecting("Invalid mode");
 		}
@@ -192,6 +204,17 @@ async function startTeacherView(teacherId) {
 	}
 }
 
+// The stream is truly live (WebRTC connected): only now claim "being viewed"
+// in the tag AND the system overlay.
+function onStudentStreamLive() {
+	streamLive = true;
+	const t = document.getElementById("notice-text");
+	if (t) t.textContent = "Your teacher is viewing your screen";
+	if (window.electronAPI?.setOverlayViewing) {
+		window.electronAPI.setOverlayViewing(true);
+	}
+}
+
 // Share this student's screen with the teacher's "view student" window.
 // Preferred path: the root-owned Capture helper (holds the Screen Recording
 // grant) streams JPEG frames over a local WebSocket; we paint them onto a
@@ -241,10 +264,11 @@ async function startStudentShare(teacherId) {
 				}
 			};
 			peerConnection.onconnectionstatechange = () => {
-				if (
-					peerConnection.connectionState === "failed" ||
-					peerConnection.connectionState === "disconnected"
-				) {
+				const st = peerConnection.connectionState;
+				if (st === "connected") {
+					onStudentStreamLive();
+				} else if (st === "failed" || st === "disconnected") {
+					window.electronAPI?.setOverlayViewing?.(false);
 					console.log("Teacher viewer disconnected, closing share window");
 					stopShare();
 				}
@@ -320,10 +344,11 @@ async function startStudentShare(teacherId) {
 
 		// If the teacher's viewer disconnects, close this window
 		peerConnection.onconnectionstatechange = () => {
-			if (
-				peerConnection.connectionState === "failed" ||
-				peerConnection.connectionState === "disconnected"
-			) {
+			const st = peerConnection.connectionState;
+			if (st === "connected") {
+				onStudentStreamLive();
+			} else if (st === "failed" || st === "disconnected") {
+				window.electronAPI?.setOverlayViewing?.(false);
 				console.log("Teacher viewer disconnected, closing share window");
 				stopShare();
 			}
@@ -348,6 +373,7 @@ async function startStudentShare(teacherId) {
 		if (noticeText) {
 			noticeText.textContent = "Sharing failed: " + err.message;
 		}
+		window.electronAPI?.setOverlayViewing?.(false);
 	}
 }
 
