@@ -160,10 +160,12 @@ export async function listTokens() {
 }
 
 export async function revokeToken(token) {
+	// Deleting a registration token is final: once revoked it simply no longer
+	// exists, so tokenValid() reports false and the admin list stops showing it.
 	const db = await loadAdmin(config_holder);
 	const doc = await db.collection("tokens").doc(token).get();
 	if (!doc.exists) return false;
-	await db.collection("tokens").doc(token).update({ revoked: true });
+	await db.collection("tokens").doc(token).delete();
 	return true;
 }
 

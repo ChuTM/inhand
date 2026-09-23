@@ -392,7 +392,7 @@ export async function createApp(config) {
 		return json(res, 200, { ok: true, tokens: await storage.listTokens() });
 	}
 	async function adminCreateToken(res, body) {
-		const token = await storage.createToken(String(body?.label || "manual"));
+		const token = await storage.createToken(String(body?.label || "unnamed"));
 		await audit(current_req.adminSession, "tokens.create", `label=${body?.label || "manual"}`, current_req);
 		return json(res, 200, { ok: true, token });
 	}

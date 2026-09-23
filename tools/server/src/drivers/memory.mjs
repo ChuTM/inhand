@@ -60,9 +60,7 @@ export async function listTokens() {
 }
 
 export async function revokeToken(token) {
-	const t = tokens.get(token);
-	if (t) t.revoked = 1;
-	return !!t;
+	return tokens.delete(token);
 }
 
 export async function tokenValid(token) {

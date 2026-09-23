@@ -104,12 +104,12 @@ export async function listTokens() {
 }
 
 export async function revokeToken(token) {
-	const t = data.tokens[token];
-	if (t) {
-		t.revoked = 1;
+	const existed = !!data.tokens[token];
+	if (existed) {
+		delete data.tokens[token];
 		save();
 	}
-	return !!t;
+	return existed;
 }
 
 export async function tokenValid(token) {

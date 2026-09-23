@@ -226,7 +226,7 @@ function closeTokenDialog() {
   if (d.open) d.close();
 }
 async function createToken() {
-  const label = ($("token-label") && $("token-label").value.trim()) || "manual";
+  const label = ($("token-label") && $("token-label").value.trim()) || "unnamed";
   const errEl = $("token-dialog-err");
   if (errEl) errEl.textContent = "";
   try {
@@ -266,9 +266,10 @@ function copyPub() {
 
 // ---- admin operations ---------------------------------------------------------------
 async function revokeToken(token) {
+  if (!confirm("Revoke registration token " + String(token).slice(0, 10) + "…?\n\nThis deletes it permanently — students using it can no longer register.")) return;
   try {
     await api("/admin/tokens", { method: "POST", body: { revoke: true, token } });
-    toast("Token revoked.");
+    toast("Token revoked and deleted.");
     loadAll();
   } catch (e) { toast(e.message, "error"); }
 }
@@ -366,8 +367,8 @@ function renderTokens(tokens) {
           <td class="mono" title="${esc(t.token || "")}">${esc(String(t.token || "").slice(0, 18))}…</td>
           <td>${esc(t.label)}</td>
           <td>${fmtTs(t.created_at ?? t.createdAt)}</td>
-          <td>${t.revoked ? `<span class="badge">revoked</span>` : `<span class="badge ok">active</span>`}</td>
-          <td>${t.revoked ? "" : `<button class="ghost danger" data-action="revokeToken" data-arg="${esc(t.token)}">Revoke</button>`}</td>
+          <td><span class="badge ok">active</span></td>
+          <td><button class="ghost danger" data-action="revokeToken" data-arg="${esc(t.token)}">Revoke</button></td>
         </tr>`).join("") + `</table>`
     : `<p class="empty">No tokens yet — create one with “Create a Token”.</p>`;
 }

@@ -191,9 +191,7 @@ export async function listTokens() {
 }
 
 export async function revokeToken(token) {
-	const res = db
-		.prepare("UPDATE tokens SET revoked = 1 WHERE token = ?")
-		.run(token);
+	const res = db.prepare("DELETE FROM tokens WHERE token = ?").run(token);
 	return res.changes > 0;
 }
 
