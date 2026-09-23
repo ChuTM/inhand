@@ -1,6 +1,6 @@
 {
   "name": "com.inhand.student",
-  "version": "2.0.4-beta.2",
+  "version": "2.0.4",
   "description": "InHand Student — wallpaper management & classroom screen sharing service",
   "main": "main.js",
   "productName": "InHand Student",
