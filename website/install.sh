@@ -128,9 +128,12 @@ print_banner() {
   echo ""
 }
 
-# HEAD content-length -> "92.9 MB" (empty on failure)
+# HEAD content-length -> "92.9 MB" (follows redirects; empty on failure)
 dmg_size() {
-  curl -fsSI "$1" 2>/dev/null | awk -F': ' 'tolower($1)=="content-length" {printf "%.1f MB", $2/1048576}'
+  curl -fsSLI "$1" 2>/dev/null | awk -F': ' '
+    tolower($1) == "content-length" { len = $2 }
+    END { if (len + 0 > 0) printf "%.1f MB", len / 1048576 }
+  '
 }
 
 # Download with a live progress bar showing percent + received/total MB.
@@ -143,6 +146,7 @@ fetch_with_progress() {
   echo ""
   echo "  ${C_BLUE}↓ Downloading ${label}${C_RESET}  ${C_DIM}(${size})${C_RESET}"
   curl -fL -o "$out" "$url" 2>&1 | awk '
+    BEGIN { RS = "\r" }
     function bar(p,   i, s) {
       s = ""
       n = int(p / 100 * 24)
@@ -150,7 +154,7 @@ fetch_with_progress() {
       return s
     }
     {
-      sub(/.*\r/, "", $0)
+      # each record is one curl progress update (\r-separated)
       if (NF >= 4 && $1 ~ /^[0-9]+$/) {
         printf "\r  [%s] %3d%%  %s / %s  ", bar($1), $1, $4, $2
         fflush()
