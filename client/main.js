@@ -428,11 +428,13 @@ function createShareWindow(mode, targetId, sourceId, persistent = false) {
 	let win;
 
 	if (mode === "student-share") {
-		// Small, frameless, always-on-top tag: "Your teacher is viewing your
-		// screen". No title bar, no controls, clicks pass through.
+		// Invisible share window: it only runs the WebRTC + signaling logic.
+		// The student-facing indicator is the system-level overlay pill
+		// ("Screen Being Viewed") drawn by the main process, like LAN-only.
 		win = new BrowserWindow({
-			width: 380,
-			height: 84,
+			width: 1,
+			height: 1,
+			show: false,
 			frame: false,
 			transparent: true,
 			resizable: false,
@@ -440,7 +442,6 @@ function createShareWindow(mode, targetId, sourceId, persistent = false) {
 			focusable: false,
 			hasShadow: false,
 			skipTaskbar: true,
-			alwaysOnTop: true,
 			webPreferences: {
 				nodeIntegration: false,
 				contextIsolation: true,

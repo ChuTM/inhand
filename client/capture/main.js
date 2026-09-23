@@ -65,7 +65,7 @@ function broadcastFrame(jpgBuf, meta) {
 function createHiddenWindow() {
 	console.log("[capture] creating hidden window");
 	hiddenWin = new BrowserWindow({
-		show: true,
+		show: false, // invisible helper — students must never see this window
 		width: 320,
 		height: 200,
 		webPreferences: {
