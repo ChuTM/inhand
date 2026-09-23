@@ -5,6 +5,7 @@ let targetId = null;
 let serverUrl = null;
 let localStream = null;
 let captureWs = null;
+let captureUnsubscribe = null;
 let streamLive = false;
 
 const video = document.getElementById("remote-video");
@@ -114,9 +115,12 @@ async function init() {
 			return;
 		}
 		try {
-			await peerConnection.addIceCandidate(
-				new RTCIceCandidate(env.p.candidate),
-			);
+			const cand = env.p.candidate || {};
+			const ice = {};
+			if (cand.candidate != null) ice.candidate = cand.candidate;
+			if (cand.sdpMid != null) ice.sdpMid = cand.sdpMid;
+			if (cand.sdpMLineIndex != null) ice.sdpMLineIndex = cand.sdpMLineIndex;
+			await peerConnection.addIceCandidate(new RTCIceCandidate(ice));
 		} catch (err) {
 			console.error("Error handling ICE candidate:", err);
 		}
@@ -287,30 +291,39 @@ async function startStudentShare(teacherId) {
 		const frameCanvas = document.createElement("canvas");
 		const fctx = frameCanvas.getContext("2d");
 
-		const ws = new WebSocket(helperUrl);
-		captureWs = ws;
-		ws.binaryType = "blob";
+		// The WS connection is owned by the MAIN PROCESS (Node network stack);
+		// the Chromium stack cannot reliably reach the loopback helper. Frames
+		// arrive over IPC and are painted onto the same canvas.
+		window.electronAPI.startCaptureBridge(helperUrl);
+		let frameResolved = false;
 
 		const frameReady = new Promise((resolve, reject) => {
-			ws.onerror = () => reject(new Error("Capture helper unreachable"));
-			ws.onmessage = async (ev) => {
-				if (typeof ev.data === "string") return; // ignore any text control frames
+			// Never let the share hang if the helper goes quiet.
+			const hung = setTimeout(
+				() => reject(new Error("No frames from capture helper")),
+				8000,
+			);
+			captureUnsubscribe = window.electronAPI.onCaptureFrame(async (buf) => {
+				if (typeof buf === "string") return; // ignore any text control frames
 				try {
-					const bmp = await createImageBitmap(ev.data);
-					if (frameCanvas.width === 0) {
+					const bmp = await createImageBitmap(new Blob([buf]));
+					if (!frameResolved) {
+						frameResolved = true;
 						frameCanvas.width = bmp.width;
 						frameCanvas.height = bmp.height;
+						clearTimeout(hung);
 						resolve(frameCanvas);
 					}
 					fctx.drawImage(bmp, 0, 0);
 				} catch (err) {
-					reject(new Error("Frame decode failed: " + err.message));
+					if (!frameResolved) {
+						frameResolved = true;
+						clearTimeout(hung);
+						reject(new Error("Frame decode failed: " + err.message));
+					}
 				}
-			};
+			});
 		});
-		// Never let the share hang if the helper goes quiet.
-		const hung = setTimeout(() => reject(new Error("No frames from capture helper")), 8000);
-		frameReady.then(() => clearTimeout(hung), () => clearTimeout(hung));
 
 		const canvasEl = await frameReady;
 
@@ -378,6 +391,13 @@ async function startStudentShare(teacherId) {
 }
 
 function stopShare() {
+	if (captureUnsubscribe) {
+		try { captureUnsubscribe(); } catch {}
+		captureUnsubscribe = null;
+	}
+	if (window.electronAPI.stopCaptureBridge) {
+		window.electronAPI.stopCaptureBridge();
+	}
 	if (captureWs) {
 		try { captureWs.close(); } catch {}
 		captureWs = null;

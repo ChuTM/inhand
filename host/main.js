@@ -1064,7 +1064,7 @@ function createScreenShareWindow(streamUrl, title, peerId) {
 		if (level >= 2) audit("share-window-console", { title, message });
 	});
 	win.loadURL(streamUrl);
-	if (DEV_MODE) win.webContents.openDevTools({ mode: "detach" });
+	if (DEV_MODE && process.env.INHAND_DEVTOOLS === "1") win.webContents.openDevTools({ mode: "detach" });
 	win.on("closed", () => {
 		screenShareWindows.delete(peerId);
 	});
@@ -1117,7 +1117,7 @@ function openSettingsWindow() {
 		settingsWindow = null;
 	});
 	settingsWindow.loadURL(`http://localhost:${PORT}/settings.html`);
-	if (DEV_MODE) settingsWindow.webContents.openDevTools({ mode: "detach" });
+	if (DEV_MODE && process.env.INHAND_DEVTOOLS === "1") settingsWindow.webContents.openDevTools({ mode: "detach" });
 }
 
 function showWindow() {
@@ -1144,7 +1144,7 @@ function showWindow() {
 			if (level >= 2) audit("admin-window-console", { message });
 		});
 		mainWindow.loadURL(`http://localhost:${PORT}/admin`);
-		if (DEV_MODE) mainWindow.webContents.openDevTools({ mode: "detach" });
+		if (DEV_MODE && process.env.INHAND_DEVTOOLS === "1") mainWindow.webContents.openDevTools({ mode: "detach" });
 		mainWindow.on("close", (e) => {
 			if (!app.isQuitting) {
 				e.preventDefault();

@@ -90,9 +90,12 @@ async function init() {
 	socket.on("screen-share-ice-candidate", async (data) => {
 		if (!peerConnection) return;
 		try {
-			await peerConnection.addIceCandidate(
-				new RTCIceCandidate(data.candidate),
-			);
+			const cand = data.candidate || {};
+			const ice = {};
+			if (cand.candidate != null) ice.candidate = cand.candidate;
+			if (cand.sdpMid != null) ice.sdpMid = cand.sdpMid;
+			if (cand.sdpMLineIndex != null) ice.sdpMLineIndex = cand.sdpMLineIndex;
+			await peerConnection.addIceCandidate(new RTCIceCandidate(ice));
 		} catch (err) {
 			console.error("Error handling ICE candidate:", err);
 		}

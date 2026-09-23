@@ -15,6 +15,7 @@ const https = require("https");
 const http = require("http");
 const crypto = require("crypto");
 const io = require("socket.io-client");
+const WebSocket = require("ws");
 const Store = require("electron-store");
 const {
 	canonicalize,
@@ -181,6 +182,8 @@ function isPrivateAddress(ip) {
 async function applyDiscovery(discovery) {
 	settings.serverUrl = discovery.serverUrl;
 	teacherPub = discovery.teacherPub;
+
+
 
 	// Keep the root firewall helper's teacher key in sync (overwrite on
 	// mismatch). Also start the self-heal loop: the helper may be installed
@@ -360,12 +363,16 @@ function isCaptureUp() {
 async function spawnCaptureHelper() {
 	try {
 		const isProd = fs.existsSync(CAPTURE_APP_BINARY);
-		const args = isProd ? [] : [CAPTURE_DEV_DIR];
-		const bin = isProd ? CAPTURE_APP_BINARY : process.execPath;
+		const swiftDevBin = path.join(CAPTURE_DEV_DIR, "dist", "inhand-capture");
+		const useSwift = fs.existsSync(swiftDevBin);
+		const args = isProd || useSwift ? [] : [CAPTURE_DEV_DIR];
+		const bin = isProd ? CAPTURE_APP_BINARY : useSwift ? swiftDevBin : process.execPath;
+		const env = { ...process.env };
+		if (!isProd && !useSwift) env.ELECTRON_RUN_AS_NODE = "";
 		const child = spawn(bin, args, {
 			detached: true,
 			stdio: "ignore",
-			env: { ...process.env, ELECTRON_RUN_AS_NODE: "" },
+			env,
 		});
 		child.unref();
 		captureHelperSpawnedAt = Date.now();
@@ -389,6 +396,54 @@ ipcMain.handle("ENSURE_CAPTURE_HELPER", async () => {
 		if (await isCaptureUp()) return CAPTURE_FRAMES_URL;
 	}
 	return null;
+});
+
+// --- Capture frame bridge ------------------------------------------------
+// The share renderer's Chromium network stack cannot reliably reach the
+// loopback capture helper (system proxy quirks), so the MAIN PROCESS owns the
+// WS connection and forwards JPEG frames to the share window over IPC.
+let captureBridge = null; // { ws, win }
+
+function startCaptureBridge(win, url) {
+	if (
+		captureBridge &&
+		!captureBridge.win.isDestroyed() &&
+		captureBridge.win === win &&
+		captureBridge.ws.readyState === WebSocket.OPEN
+	) {
+		return;
+	}
+	stopCaptureBridge();
+	const ws = new WebSocket(url);
+	ws.binaryType = "arraybuffer";
+	ws.on("message", (data) => {
+		if (!win.isDestroyed()) win.webContents.send("capture-frame", data);
+	});
+	ws.on("error", (err) => {
+		console.error("[capture-bridge] ws error:", err.message);
+	});
+	ws.on("close", () => {
+		if (captureBridge && captureBridge.ws === ws) captureBridge = null;
+	});
+	captureBridge = { ws, win };
+}
+
+function stopCaptureBridge() {
+	if (captureBridge) {
+		try {
+			captureBridge.ws.close();
+		} catch {}
+		captureBridge = null;
+	}
+}
+
+ipcMain.on("START_CAPTURE_BRIDGE", (event, url) => {
+	const win = BrowserWindow.fromWebContents(event.sender);
+	if (win) startCaptureBridge(win, url);
+});
+
+ipcMain.on("STOP_CAPTURE_BRIDGE", () => {
+	stopCaptureBridge();
 });
 
 ipcMain.handle("ENCRYPT_FOR_TEACHER", (_event, obj) => {
