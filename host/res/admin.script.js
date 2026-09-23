@@ -107,22 +107,39 @@ async function replaceIconsWithSfSymbols(root = document) {
 	// The symbol PNG becomes a CSS mask (its alpha channel), so the visible
 	// color is background-color: currentColor and state classes can recolor it
 	// (success = green, failure = red, sharing = white-on-red, ...).
+	//
+	// The CSP (style-src 'self') blocks inline style and <style> injection, but
+	// CSSOM insertRule on an external stylesheet is allowed — so each symbol's
+	// mask image is registered once as a class rule on style.css's sheet.
 	const els = Array.from(root.querySelectorAll("i[data-sf]"));
 	let replaced = 0, skipped = 0;
+	const styleSheet = document.styleSheets[0];
+	const maskCache = new Map(); // sfName -> mask class name
 	await Promise.all(
 		els.map(async (el) => {
 			const sfName = el.dataset?.sf;
 			if (!sfName) { skipped++; return; }
 			try {
 				const url = await window.electronAPI?.sfSymbol?.(sfName);
-				if (url) {
-					replaced++;
-					const icon = document.createElement("i");
-					icon.className = el.className;
-					icon.style.webkitMaskImage = `url('${url}')`;
-					icon.style.backgroundColor = "currentColor";
-					el.replaceWith(icon);
-				} else { skipped++; }
+				if (!url) { skipped++; return; }
+				let maskClass = maskCache.get(sfName);
+				if (!maskClass) {
+					maskClass = "sf-mask-" + sfName.replace(/[^a-z0-9]+/gi, "-");
+					try {
+						styleSheet.insertRule(
+							`.${maskClass} { -webkit-mask-image: url('${url}'); -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; -webkit-mask-size: contain; }`,
+							styleSheet.cssRules.length,
+						);
+						maskCache.set(sfName, maskClass);
+					} catch (e) {
+						skipped++;
+						return;
+					}
+				}
+				replaced++;
+				const icon = document.createElement("i");
+				icon.className = el.className + " " + maskClass;
+				el.replaceWith(icon);
 			} catch (e) {
 				skipped++;
 				/* keep the placeholder element */
