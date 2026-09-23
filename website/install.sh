@@ -14,6 +14,11 @@
 #    - Firewall   (com.inhand.fw daemon, /Library)   — LAN-only helper, root;
 #                                                      updates rarely
 #
+#  RELEASE CHANNEL:
+#    Default channel is `latest` (latest stable release).
+#    Pass `-c beta` (or --channel=beta) to install/update from the newest
+#    pre-release (beta) instead — useful for testing upcoming builds.
+#
 #  UPDATE POLICY (important):
 #    The default `-v/--update` only replaces the MAIN APP, so the Capture and
 #    Firewall helpers (and their one-time macOS permissions) are NEVER touched.
@@ -41,6 +46,7 @@ URL_SPECIFIED=false
 IS_UPDATE=false
 FIREWALL=false
 SCOPE="app"
+CHANNEL="latest"
 
 INSTALL_DIR="$HOME/Library/Application Support/InHand"
 APP_NAME="InHand Student.app"
@@ -62,6 +68,7 @@ Usage: bash install.sh [options]
 
   -a, --api-url <url>   set the cloud API base URL
                         (default https://inhand-server.vercel.app)
+  -c, --channel <ch>    release channel: latest (stable, default) or beta (pre-release)
   -f, --firewall        also install/update the LAN-only firewall helper
   -u, --uninstall       uninstall the student client (app + capture + firewall)
   -v, --update          update the client
@@ -111,6 +118,14 @@ while [[ $# -gt 0 ]]; do
       SCOPE="$2"
       shift 2
       ;;
+    -c|--channel)
+      CHANNEL="$2"
+      shift 2
+      ;;
+    --channel=*)
+      CHANNEL="${1#--channel=}"
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -122,6 +137,26 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# --- Release channel ---
+if [ "$CHANNEL" != "latest" ] && [ "$CHANNEL" != "beta" ]; then
+  echo "[ERROR] Unknown channel: $CHANNEL (use latest or beta)"
+  exit 1
+fi
+
+if [ "$CHANNEL" = "beta" ]; then
+  BETA_TAG="$(curl -fsSL "https://api.github.com/repos/ChuTM/inhand/releases?per_page=50" \
+    | python3 -c 'import json,sys
+rs=[r for r in json.load(sys.stdin) if r.get("prerelease") and not r.get("draft")]
+print(rs[0]["tag_name"] if rs else "")' 2>/dev/null)"
+  if [ -z "$BETA_TAG" ]; then
+    echo "[ERROR] No beta (pre-release) found on GitHub. Publish one first via private/release.js."
+    exit 1
+  fi
+  DMG_URL="https://github.com/ChuTM/inhand/releases/download/$BETA_TAG/InHand-arm64.dmg"
+  CAPTURE_DMG_URL="https://github.com/ChuTM/inhand/releases/download/$BETA_TAG/InHand-Capture-arm64.dmg"
+  echo "[INFO] Beta channel active - using pre-release tag $BETA_TAG"
+fi
 
 # --- Apple Silicon Check (install and update only) ---
 if [ "$MODE" = "install" ] || [ "$MODE" = "update" ]; then

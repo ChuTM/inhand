@@ -193,16 +193,71 @@ async function startTeacherView(teacherId) {
 }
 
 // Share this student's screen with the teacher's "view student" window.
-// The screen capture itself lives in the root-owned Capture helper (which
-// holds the Screen Recording grant); here we consume its JPEG frame stream
-// over a local WebSocket, paint it onto a canvas, and feed the canvas into
-// WebRTC via captureStream(). The main app can then be updated freely without
-// ever resetting the one-time capture permission.
+// Preferred path: the root-owned Capture helper (holds the Screen Recording
+// grant) streams JPEG frames over a local WebSocket; we paint them onto a
+// canvas and feed WebRTC via captureStream(). If the helper is not installed
+// yet (e.g. first run before the split ships), we fall back to capturing in
+// this app via desktopCapturer — teacher-view (receiving) is unaffected.
 async function startStudentShare(teacherId) {
 	try {
 		const helperUrl = await window.electronAPI.ensureCaptureHelper();
 		if (!helperUrl) {
-			throw new Error("Screen capture helper is not available");
+			// Fallback: capture directly in this app (legacy path). Requires the
+			// app to hold Screen Recording; fine until the helper is deployed.
+			const sources = await window.electronAPI.getScreenSources();
+			if (!sources.length) throw new Error("No screen sources available");
+			const legacy = await navigator.mediaDevices.getUserMedia({
+				audio: false,
+				video: {
+					mandatory: {
+						chromeMediaSource: "desktop",
+						chromeMediaSourceId: sources[0].id,
+						minWidth: 1280,
+						maxWidth: 1920,
+						minHeight: 720,
+						maxHeight: 1080,
+					},
+				},
+			});
+			localStream = legacy;
+			peerConnection = new RTCPeerConnection({
+				iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+			});
+			legacy.getTracks().forEach((track) => peerConnection.addTrack(track, legacy));
+			peerConnection.onicecandidate = async (event) => {
+				if (event.candidate) {
+					const c = event.candidate;
+					const enc = await window.electronAPI.encryptForTeacher({
+						candidate: {
+							candidate: c.candidate,
+							sdpMid: c.sdpMid,
+							sdpMLineIndex: c.sdpMLineIndex,
+						},
+					});
+					socket.emit("screen-share-ice-candidate", {
+						targetId: teacherId,
+						candidate: enc,
+					});
+				}
+			};
+			peerConnection.onconnectionstatechange = () => {
+				if (
+					peerConnection.connectionState === "failed" ||
+					peerConnection.connectionState === "disconnected"
+				) {
+					console.log("Teacher viewer disconnected, closing share window");
+					stopShare();
+				}
+			};
+			const offer = await peerConnection.createOffer();
+			await peerConnection.setLocalDescription(offer);
+			const enc = await window.electronAPI.encryptForTeacher({
+				type: offer.type,
+				sdp: offer.sdp,
+			});
+			socket.emit("screen-share-offer", { targetId: teacherId, sdp: enc });
+			console.log("[share] student-share legacy capture ok, offer sent to", teacherId);
+			return;
 		}
 
 		const frameCanvas = document.createElement("canvas");

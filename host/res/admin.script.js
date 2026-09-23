@@ -161,6 +161,20 @@ function buildActionCards() {
 		card.querySelector(".action-name").textContent = def.label || type;
 		grid.appendChild(card);
 	}
+	// Password Book is a local navigation action, not a teacher command.
+	{
+		const card = document.createElement("button");
+		card.type = "button";
+		card.className = "action-card nav-action";
+		card.dataset.action = "password-book";
+		card.title = "Import or edit the student password book (used when clients need sudo to update)";
+		card.innerHTML = `
+			<span class="action-icon"><span class="plane-wrap"><i data-lucide="book-lock" class="lucide-icon"></i></span></span>
+			<span class="action-name">Password Book</span>
+			<span class="action-state" role="status" aria-label=""></span>
+		`;
+		grid.appendChild(card);
+	}
 	if (window.lucide) {
 		lucide.createIcons({ attrs: { class: "lucide-icon", "stroke-width": 1.5 } });
 		replaceIconsWithSfSymbols();
@@ -174,6 +188,7 @@ function updateActionStates() {
 	for (const card of grid.querySelectorAll(".action-card")) {
 		const type = card.dataset.action;
 		const stateEl = card.querySelector(".action-state");
+		if (type === "password-book") continue;
 		if (type === "lan-only") {
 			const locked = !!fwState.locked;
 			card.classList.toggle("is-locked", locked);
@@ -183,6 +198,10 @@ function updateActionStates() {
 }
 
 async function handleActionClick(type, card) {
+	if (type === "password-book") {
+		window.location.href = "/password-book";
+		return;
+	}
 	if (type === "lan-only") {
 		const turnOn = !fwState.locked;
 		const msg = turnOn
