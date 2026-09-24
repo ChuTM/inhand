@@ -48,7 +48,9 @@ document.getElementById("btn-setup").addEventListener("click", async () => {
 		return;
 	}
 	const schoolName = document.getElementById("setup-school").value.trim();
-	const registrationToken = document.getElementById("setup-token").value.trim();
+	const registrationToken = document
+		.getElementById("setup-token")
+		.value.trim();
 	const res = await window.electronAPI.setup(
 		password,
 		schoolName,
@@ -96,7 +98,13 @@ async function loadCommandWhitelist() {
 // ---------------------------------------------------------------------------
 // Actions (favorite commands rendered as cards with send animation)
 // ---------------------------------------------------------------------------
-let fwState = { locked: false, since: null, deadline: null, ttlMinutes: null, keySet: false };
+let fwState = {
+	locked: false,
+	since: null,
+	deadline: null,
+	ttlMinutes: null,
+	keySet: false,
+};
 
 // ---------------------------------------------------------------------------
 // SF Symbols: replace every <i data-sf="..."> placeholder with the matching
@@ -106,12 +114,19 @@ let fwState = { locked: false, since: null, deadline: null, ttlMinutes: null, ke
 // ---------------------------------------------------------------------------
 function replaceIconsWithSfSymbols(root = document) {
 	const els = Array.from(root.querySelectorAll("[data-sf]"));
-	let replaced = 0, skipped = 0;
+	let replaced = 0,
+		skipped = 0;
 	for (const el of els) {
 		const sfName = el.dataset?.sf;
-		if (!sfName) { skipped++; continue; }
+		if (!sfName) {
+			skipped++;
+			continue;
+		}
 		const ch = (window.SF_SYMBOLS || {})[sfName];
-		if (!ch) { skipped++; continue; }
+		if (!ch) {
+			skipped++;
+			continue;
+		}
 		el.textContent = ch;
 		el.removeAttribute("data-sf");
 		el.classList.add("sf-icon");
@@ -145,7 +160,8 @@ function buildActionCards() {
 		card.type = "button";
 		card.className = "action-card nav-action";
 		card.dataset.action = "password-book";
-		card.title = "Import or edit the student password book (used when clients need sudo to update)";
+		card.title =
+			"Import or edit the student password book (used when clients need sudo to update)";
 		card.innerHTML = `
 			<span class="action-icon"><span class="plane-wrap"><i data-sf="lock" class="sf-icon"></i></span></span>
 			<span class="action-name">Password Book</span>
@@ -153,7 +169,7 @@ function buildActionCards() {
 		`;
 		grid.appendChild(card);
 	}
-replaceIconsWithSfSymbols();
+	replaceIconsWithSfSymbols();
 	updateActionStates();
 }
 
@@ -167,6 +183,7 @@ function updateActionStates() {
 		if (type === "lan-only") {
 			const locked = !!fwState.locked;
 			card.classList.toggle("is-locked", locked);
+			card.classList.toggle("ai-arua", locked);
 			stateEl.setAttribute("aria-label", locked ? "ON" : "OFF");
 		}
 	}
@@ -199,9 +216,16 @@ async function handleActionClick(type, card) {
 }
 
 async function sendAction(type, params) {
-	const res = await window.electronAPI.sendTeacherEvent("command", { type, params });
+	const res = await window.electronAPI.sendTeacherEvent("command", {
+		type,
+		params,
+	});
 	if (!res.ok) {
-		appendConsoleOutput("Admin System", res.error || "Command rejected.", true);
+		appendConsoleOutput(
+			"Admin System",
+			res.error || "Command rejected.",
+			true,
+		);
 		return false;
 	}
 	return true;
@@ -238,7 +262,9 @@ function renderCommandParams() {
 	}
 }
 
-document.getElementById("cmd-type").addEventListener("change", renderCommandParams);
+document
+	.getElementById("cmd-type")
+	.addEventListener("change", renderCommandParams);
 
 document.getElementById("btn-send-cmd").addEventListener("click", sendCommand);
 
@@ -267,7 +293,11 @@ async function sendCommand() {
 		}
 	}
 	if (!ok) {
-		appendConsoleOutput("Admin System", "Missing required parameter(s).", true);
+		appendConsoleOutput(
+			"Admin System",
+			"Missing required parameter(s).",
+			true,
+		);
 		return;
 	}
 	const res = await window.electronAPI.sendTeacherEvent("command", {
@@ -275,7 +305,11 @@ async function sendCommand() {
 		params,
 	});
 	if (!res.ok) {
-		appendConsoleOutput("Admin System", res.error || "Command rejected.", true);
+		appendConsoleOutput(
+			"Admin System",
+			res.error || "Command rejected.",
+			true,
+		);
 	}
 }
 
@@ -284,9 +318,16 @@ async function sendCommand() {
 // ---------------------------------------------------------------------------
 const wpPathInput = document.getElementById("wp-path");
 async function sendWallpaperCommand(type, params) {
-	const res = await window.electronAPI.sendTeacherEvent("command", { type, params });
+	const res = await window.electronAPI.sendTeacherEvent("command", {
+		type,
+		params,
+	});
 	if (!res.ok) {
-		appendConsoleOutput("Admin System", res.error || "Command rejected.", true);
+		appendConsoleOutput(
+			"Admin System",
+			res.error || "Command rejected.",
+			true,
+		);
 		return;
 	}
 	appendConsoleOutput("Admin System", type + " sent to all clients.");
@@ -324,7 +365,9 @@ async function loadScreenSources() {
 			.join("");
 		if (sources.length > 0) {
 			currentShareSourceId = sources[0].id;
-			document.getElementById("share-permission-warning")?.classList.add("hidden");
+			document
+				.getElementById("share-permission-warning")
+				?.classList.add("hidden");
 		} else {
 			// macOS returns an empty list when this app has no Screen
 			// Recording permission (each rebuild invalidates the grant).
@@ -351,8 +394,13 @@ async function startScreenShare() {
 	const selector = document.getElementById("screen-source-selector");
 	const status = document.getElementById("share-status");
 	const select = document.getElementById("screen-source-select");
-	const persistentCheckbox = document.getElementById("persistent-share-window");
-	const isPersistent = persistentCheckbox ? persistentCheckbox.checked : false;
+	const persistentCheckbox = document.getElementById(
+		"persistent-share-window",
+	);
+	const isPersistent = persistentCheckbox
+		? persistentCheckbox.checked
+		: false;
+	const sharePanel = document.querySelector(".share-panel");
 
 	try {
 		if (select.options.length === 0) {
@@ -403,7 +451,8 @@ async function startScreenShare() {
 		btn.classList.add("sharing");
 		selector.classList.add("hidden");
 		status.classList.remove("hidden");
-replaceIconsWithSfSymbols();
+		sharePanel.classList.add("ai-aura");
+		replaceIconsWithSfSymbols();
 	} catch (err) {
 		console.error("Failed to start screen share:", err);
 		alert("Failed to start screen sharing: " + err.message);
@@ -414,6 +463,7 @@ async function stopScreenShare() {
 	const btn = document.getElementById("btn-share-screen");
 	const selector = document.getElementById("screen-source-selector");
 	const status = document.getElementById("share-status");
+	const sharePanel = document.querySelector(".share-panel");
 
 	await window.electronAPI.sendTeacherEvent("teacher-stop-share", {});
 
@@ -430,7 +480,8 @@ async function stopScreenShare() {
 	btn.classList.remove("sharing");
 	selector.classList.remove("hidden");
 	status.classList.add("hidden");
-replaceIconsWithSfSymbols();
+	sharePanel.classList.remove("ai-aura");
+	replaceIconsWithSfSymbols();
 }
 
 // A student share window asks to receive the teacher's broadcast.
@@ -456,7 +507,9 @@ socket.on("screen-share-offer", async (data) => {
 			iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 		});
 
-		localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+		localStream
+			.getTracks()
+			.forEach((track) => pc.addTrack(track, localStream));
 
 		pc.onicecandidate = (event) => {
 			if (event.candidate) {
@@ -489,10 +542,17 @@ socket.on("screen-share-offer", async (data) => {
 			targetId: studentWindowId,
 			sdp: answer,
 		});
-		appendConsoleOutput("Screen Sharing", "Answer sent to " + studentWindowId);
+		appendConsoleOutput(
+			"Screen Sharing",
+			"Answer sent to " + studentWindowId,
+		);
 	} catch (err) {
 		console.error("Error answering student stream request:", err);
-		appendConsoleOutput("Screen Sharing", "Answer failed: " + err.message, true);
+		appendConsoleOutput(
+			"Screen Sharing",
+			"Answer failed: " + err.message,
+			true,
+		);
 	}
 });
 
@@ -561,9 +621,18 @@ async function fetchStatus() {
 			data = data.devices;
 		}
 
-		const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({
-			"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-		}[c]));
+		const esc = (v) =>
+			String(v ?? "").replace(
+				/[&<>"']/g,
+				(c) =>
+					({
+						"&": "&amp;",
+						"<": "&lt;",
+						">": "&gt;",
+						'"': "&quot;",
+						"'": "&#39;",
+					})[c],
+			);
 
 		table.innerHTML = data
 			.map((device) => {
@@ -579,9 +648,11 @@ async function fetchStatus() {
                             </td>
                             <td class="timestamp">${esc(device.lastSeen || device.firstSeen)}</td>
                             <td>
-                                ${isOnline
-									? `<button class="view-btn" data-action="view" data-name="${esc(device.name)}" data-sid="${esc(device.socketId)}"><i data-sf="eye"></i> View Screen</button>`
-									: `<button class="btn-remove" data-action="remove" data-name="${esc(device.name)}" title="Remove History">Remove</button>`}
+                                ${
+									isOnline
+										? `<button class="view-btn" data-action="view" data-name="${esc(device.name)}" data-sid="${esc(device.socketId)}"><i data-sf="eye"></i> View Screen</button>`
+										: `<button class="btn-remove" data-action="remove" data-name="${esc(device.name)}" title="Remove History">Remove</button>`
+								}
                             </td>
                         </tr>
                     `;
@@ -593,13 +664,18 @@ async function fetchStatus() {
 		const count = document.getElementById("client-count");
 		if (count) count.textContent = data.length;
 
-replaceIconsWithSfSymbols();
+		replaceIconsWithSfSymbols();
 	} catch (err) {
 		console.error("Failed to fetch status:", err);
 	}
 }
 
-function appendConsoleOutput(deviceName, payload, isError = false, fullFallback = {}) {
+function appendConsoleOutput(
+	deviceName,
+	payload,
+	isError = false,
+	fullFallback = {},
+) {
 	const streamContainer = document.getElementById("console-stream");
 	if (!streamContainer) return;
 
@@ -645,7 +721,8 @@ function appendConsoleOutput(deviceName, payload, isError = false, fullFallback 
 
 // Title bar double-click → maximize (moved out of inline HTML for strict CSP).
 document.getElementById("title-bar").addEventListener("dblclick", () => {
-	if (window.electronAPI?.handleDoubleClick) window.electronAPI.handleDoubleClick();
+	if (window.electronAPI?.handleDoubleClick)
+		window.electronAPI.handleDoubleClick();
 });
 
 // Event delegation for table actions (no inline onclick under strict CSP).
@@ -680,15 +757,21 @@ document.addEventListener("DOMContentLoaded", () => {
 	initializeConsoleLayout();
 	serverAddress();
 
-	document.getElementById("screen-source-select").addEventListener("change", (e) => {
-		currentShareSourceId = e.target.value;
-	});
+	document
+		.getElementById("screen-source-select")
+		.addEventListener("change", (e) => {
+			currentShareSourceId = e.target.value;
+		});
 
 	loadScreenSources().then(() => {
-		document.getElementById("screen-source-selector").classList.remove("hidden");
+		document
+			.getElementById("screen-source-selector")
+			.classList.remove("hidden");
 	});
 
-	document.getElementById("btn-share-screen").addEventListener("click", toggleScreenShare);
+	document
+		.getElementById("btn-share-screen")
+		.addEventListener("click", toggleScreenShare);
 
 	const configToggle = document.getElementById("config_mode");
 	if (configToggle) {
@@ -761,7 +844,9 @@ function removeConnectionHistory(deviceName) {
 		})
 			.then((response) => {
 				if (!response.ok) {
-					throw new Error(`Server responded with status ${response.status}`);
+					throw new Error(
+						`Server responded with status ${response.status}`,
+					);
 				}
 				return response.json();
 			})
