@@ -1,8 +1,9 @@
+
 # Terms of Service
 
 **InHand — classroom wallpaper management and screen sharing software**
 
-Effective date: **20 September 2026** · Version 1.1 · Governed by the laws of the Hong Kong Special Administrative Region
+Effective date: **20 September 2026** · Version 1.2 · Governed by the laws of the Hong Kong Special Administrative Region
 
 ## Contents
 
@@ -35,7 +36,7 @@ Effective date: **20 September 2026** · Version 1.1 · Governed by the laws of 
 
 These Terms of Service (the "Terms") govern access to and use of the InHand classroom management software (the "Service" or "Software"), comprising the InHand Student application, the InHand Admin control panel, and associated cloud services.
 
-By installing, accessing or using the Service, or by deploying it within an educational institution, you agree to these Terms. If you are entering into these Terms on behalf of a school, college, university, or educational organisation (a "School"), you represent and warrant that you have full legal authority to bind that School.
+By installing, accessing or using the Service, or by deploying it on School assets within an educational institution, you agree to these Terms. If you are entering into these Terms on behalf of a school, college, university, or educational organisation (a "School"), you represent and warrant that you have full legal authority to bind that School.
 
 These Terms must be read in conjunction with our [Privacy Policy](privacy-policy.md), which forms part of this agreement.
 
@@ -45,15 +46,15 @@ These Terms must be read in conjunction with our [Privacy Policy](privacy-policy
 >
 > **"Cloud Service"** means the cloud discovery and update manifest services operated by the Developer.
 >
-> **"Developer", "we", "us", "our"** means **Chu Tsz Ming**, the individual developer of the InHand software, commissioned and engaged by **Christian Alliance S. C. Chan Memorial College** (the "Commissioning School") to build and maintain the Software. InHand is **open-source software**; these Terms govern the use of the Service as commissioned and operated on behalf of the Commissioning School. The Commissioning School is the responsible entity under these Terms, and the Developer acts as its technical service provider.
+> **"Developer", "we", "us", "our"** means the developers and operators of the InHand software.
 >
-> **"School"** means the educational institution licensing or deploying the Service.
+> **"School"** means the educational institution licensing, deploying, and owning the hardware assets on which the Service is installed.
 >
-> **"Student"** means an individual end-user whose device runs the InHand Student application under the auspices of a School.
+> **"Student"** means an individual student using a School-owned macOS device running the InHand Student application.
 >
 > **"Teacher"** means an authorised educator or staff member operating the Admin Panel.
 >
-> **"User"** means any individual accessing or operating the Software.
+> **"User"** means any individual accessing or operating the Software on School assets.
 
 ## 3. About the Service and operational architecture
 
@@ -62,25 +63,25 @@ InHand provides local-first classroom management:
 - **Signed cloud discovery:** The Cloud Service acts as a lightweight cryptographic directory enabling student devices to discover the verified teacher server on the local network without manual IP configuration.
 - **Per-user footprint:** The student application runs in user space (`~/Library/Application Support/InHand/`) without requiring root system daemon privileges.
 
-The Developer provides software tools; the School remains solely responsible for educational administration, supervision, and institutional compliance with applicable laws.
+The Developer provides software tools; the School remains solely responsible as the asset owner for hardware supervision, classroom administration, and institutional compliance with applicable laws.
 
 ## 4. Eligibility and deployment by Schools
 
 ### 4.1 Institutional agreement and minors
-The contractual agreement established under these Terms is between the **School** (or adult individual purchaser) and the Developer. Students use the application as authorised beneficiaries under the School's institutional administration. Students are not contracting parties to the commercial covenants of these Terms.
+The contractual agreement established under these Terms is between the **School** (as an institution and property owner) and the Developer. Students use the application on School-owned assets as authorised end-user beneficiaries under the School's institutional administration. Students are not contracting parties to the commercial covenants of these Terms.
 
-### 4.2 School responsibilities
-Where a School deploys the Service, the School agrees to:
-- Ensure lawful authority to install the Software on managed or bring-your-own (BYOD) student devices;
-- Comply with all applicable child privacy and data protection requirements (including providing adequate notice to parents or guardians regarding screen viewing capabilities);
-- Supervise and guide Teachers in the appropriate, proportionate use of screen sharing and focus tools; and
-- Maintain proper administrative control over registration tokens and access credentials.
+### 4.2 School asset ownership and administration
+Where a School deploys the Service, the School represents and warrants that:
+- The macOS hardware running the Software constitutes **School assets owned, leased, or managed by the School**;
+- The School holds full authority to install, configure, and operate administrative tools (including wallpaper and screen management) on its own devices;
+- The School maintains institutional policies governing the acceptable use of School-owned hardware by students; and
+- The School maintains proper administrative control over registration tokens and access credentials.
 
 ## 5. Accounts, registration tokens and security
 
 ### 5.1 Registration tokens
 Schools connect to the cloud discovery service using registration tokens. Registration tokens are confidential credentials:
-- Tokens must be kept secure and shared only with authorised staff;
+- Tokens must be kept secure and shared only with authorised IT administrators and Teachers;
 - Schools are responsible for all registrations executed using their assigned tokens; and
 - Compromised tokens must be revoked promptly via the cloud administration console.
 
@@ -96,10 +97,10 @@ Users and Schools agree not to:
 ## 6. Licence grant and system permissions
 
 ### 6.1 Licence grant
-Subject to these Terms, we grant the School and its authorised Users a non-exclusive, non-transferable, revocable licence to install and run the Software in object-code form solely for internal educational purposes within the School's local network.
+Subject to these Terms, we grant the School a non-exclusive, non-transferable, revocable licence to install and run the Software in object-code form on School-owned devices solely for internal educational purposes within the School's local network.
 
-### 6.2 System permissions on macOS
-The InHand Student client installs into the standard user application support directory (`~/Library/Application Support/InHand/`). To facilitate classroom screen viewing, the application requests the standard macOS **Screen Recording** permission. The user or device owner retains the technical ability to grant or revoke this permission in macOS **System Settings** at any time.
+### 6.2 System permissions on School hardware
+The InHand Student client installs into the standard user application support directory (`~/Library/Application Support/InHand/`). To facilitate classroom screen viewing, the application requests the standard macOS **Screen Recording** permission. On School-managed devices, this permission is administered by the School's IT department (via Mobile Device Management / MDM configuration profiles) or granted during asset setup.
 
 ### 6.3 Licence restrictions
 Except as permitted by mandatory provisions of the Copyright Ordinance (Cap. 528) of Hong Kong, you shall not:
@@ -111,14 +112,14 @@ Except as permitted by mandatory provisions of the Copyright Ordinance (Cap. 528
 
 You agree not to use the Service:
 - In violation of any applicable laws of Hong Kong or the jurisdiction in which the School operates;
-- To transmit or display defamatory, obscene, harassing, or unlawful material;
-- To circumvent school security controls or intercept communications outside authorised classroom management; or
+- To transmit or display defamatory, obscene, harassing, or unlawful material across School devices;
+- To circumvent campus security controls or intercept communications outside authorised classroom management; or
 - To interfere with the stability of the Cloud Service or campus network.
 
 ## 8. Screen sharing and monitoring — acceptable use
 
-Screen viewing and sharing functions must be exercised responsibly:
-- **Educational purpose:** Screen sharing and viewing must be used strictly for instruction, academic assistance, or classroom discipline;
+Screen viewing and sharing functions on School assets must be exercised responsibly:
+- **Educational purpose:** Screen sharing and viewing must be used strictly for instruction, academic assistance, or classroom supervision;
 - **Classroom focus:** Teachers shall not view student screens outside instructional periods or outside the School's LAN;
 - **Transparency:** The student application provides on-screen visibility when screen viewing or focus mode is active. Teachers can terminate sharing at any time, returning student devices to their normal state automatically; and
 - **No cloud recording:** Screen media is transmitted locally and ephemeral; the Service does not record or store screen streams in the cloud.
@@ -127,7 +128,7 @@ Screen viewing and sharing functions must be exercised responsibly:
 
 Schools and Users agree to:
 - Provide accurate School details upon registration;
-- Maintain system updates and supported macOS versions on host hardware; and
+- Maintain system updates and supported macOS versions on School-owned hardware; and
 - Promptly report any security breach or unauthorized access involving registration tokens.
 
 ## 10. Third-party services
@@ -165,7 +166,7 @@ To the maximum extent permitted by applicable law, neither party shall be liable
 ### 16.2 Liability cap
 To the maximum extent permitted by law, the aggregate liability of the Developer arising out of or related to these Terms or the Software shall not exceed the greater of:
 1. The total amounts paid by the School to the Developer for the Service in the twelve (12) months preceding the claim; or
-2. **HK$100**.
+2. **HK$1,000**.
 
 ### 16.3 Non-excludable statutory liability
 Nothing in these Terms limits or excludes liability for death or personal injury caused by negligence, fraud, or any other liability which cannot be lawfully excluded under Hong Kong law.
@@ -173,15 +174,15 @@ Nothing in these Terms limits or excludes liability for death or personal injury
 ## 17. Indemnity (institutional)
 
 The **School** agrees to indemnify, defend, and hold harmless the Developer and its team members from and against any third-party claims, liabilities, damages, or reasonable legal costs arising out of:
-- The School's deployment or configuration of the Software on student or teacher devices;
-- The School's failure to provide requisite notices or obtain consents under the PDPO or applicable child protection laws; or
+- The School's deployment, operation, or configuration of the Software on its hardware assets;
+- The School's failure to provide requisite institutional notices or comply with the PDPO; or
 - Material breach of these Terms by the School's administrative personnel.
 
 **Exclusion:** Individual Students (and their parents/guardians) are specifically **excluded** from this indemnity covenant.
 
 ## 18. Termination
 
-- **By the School:** The School may terminate at any time by uninstalling the Software and revoking its cloud registration token.
+- **By the School:** The School may terminate at any time by uninstalling the Software from its devices and revoking its cloud registration token.
 - **By the Developer:** We may suspend or revoke cloud access upon written notice if the School materially breaches these Terms, misuses the Cloud Service, or compromises system security.
 - **Survival:** Sections 13, 15, 16, 17, 20, and 21 survive termination.
 
@@ -205,13 +206,9 @@ The courts of Hong Kong shall have exclusive jurisdiction over any dispute or cl
 
 For contractual inquiries or institutional notices:
 
-> **Chu Tsz Ming (Developer)**
->
-> Commissioned by Christian Alliance S. C. Chan Memorial College
->
-> Address: Christian Alliance S. C. Chan Memorial College, 7 Yau Oi Road, Tuen Mun, New Territories, Hong Kong
->
-> InHand is open source; the source repository and contribution information are published alongside the Service.
+> **InHand Legal Notices**
+> Email: legal@inhand.example *(or developer contact email)*
+> Address: Hong Kong Special Administrative Region
 
 ---
 

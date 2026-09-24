@@ -2,7 +2,7 @@
 
 **InHand — classroom wallpaper management and screen sharing software**
 
-Effective date: **20 September 2026** · Version 1.1 · Prepared in accordance with the Personal Data (Privacy) Ordinance (Cap. 486) of the Laws of Hong Kong (the "PDPO")
+Effective date: **20 September 2026** · Version 1.2 · Prepared in accordance with the Personal Data (Privacy) Ordinance (Cap. 486) of the Laws of Hong Kong (the "PDPO")
 
 ## Contents
 
@@ -33,29 +33,29 @@ Effective date: **20 September 2026** · Version 1.1 · Prepared in accordance w
 
 This Privacy Policy explains how the developer and operator of the InHand software (the "Developer", "InHand", "we", "us" or "our") collects, uses, discloses, retains and protects personal data in connection with the InHand classroom management software, comprising the InHand Student application, the InHand Admin control panel, and the associated cloud services (together, the "Service" or the "Software").
 
-InHand is built on a **local-first, data-minimisation architecture**: classroom management and screen sharing operate strictly across the School's local network (LAN). If classroom data does not need to leave the School's network, it does not leave it.
+InHand is built on a **local-first, data-minimisation architecture**: classroom management and screen sharing operate strictly across the School's local area network (LAN). If classroom data does not need to leave the School's network, it does not leave it.
 
 We are committed to protecting the privacy of all individuals who use the Service in accordance with the Personal Data (Privacy) Ordinance (Cap. 486) of the Laws of Hong Kong (the "PDPO") and the six Data Protection Principles ("DPPs") set out in Schedule 1 to the PDPO. This Policy describes:
 
-- what personal data we collect and why;
-- how personal data is processed, kept on the LAN, or transferred;
+- what personal data is processed on School-owned devices and why;
+- how personal data is handled on the LAN versus the cloud;
 - our security and cryptographic safeguards;
 - how long personal data is retained; and
 - your rights under Hong Kong law, including access, correction, and deletion.
 
-By installing, accessing or using the Service, or by permitting your organisation to deploy the Service, you acknowledge that you have read and understood this Policy. If you are under the age of 18, please review this Policy with your parent or guardian, and with the School providing your device.
+By installing, accessing or using the Service, or by deploying the Service on School property, you acknowledge that you have read and understood this Policy. If you are a student, please review this Policy together with your School, as the software operates on School-owned hardware assigned to you for educational purposes.
 
 ## 2. Who we are and how this Policy applies
 
-The Service is developed and operated by the InHand development team (the "Developer"). The Service enables schools, colleges, universities and educational institutions (each a "School") to manage desktop wallpapers on student devices, share screens within a classroom network, and apply network controls on student devices within the School's local area network ("LAN").
+The Service is developed and operated by the InHand development team (the "Developer"). The Service enables schools, colleges, universities and educational institutions (each a "School") to manage desktop wallpapers on School-owned student devices, share screens within a classroom network, and apply network controls on those devices within the School's local area network ("LAN").
 
 This Policy applies to:
 
-- **Students** whose macOS devices run the InHand Student application;
+- **Students** using School-owned macOS devices (School assets) running the InHand Student application;
 - **Teachers and administrators** who use the InHand Admin control panel; and
 - **School IT administrators** who register a School with the cloud service and manage registration tokens.
 
-Where the Service is deployed by a School, the School determines the purposes for which student personal data is processed. Under the PDPO, the School acts as the **data user** in respect of student personal data, and we act as the School's **data processor** (or agent). We act as a data user solely in respect of teacher/administrator account credentials and cloud service operational metadata.
+Where the Service is deployed, the devices running the software are **institutional assets owned and administered by the School**. Under the PDPO, the School acts as the **data user** in respect of student personal data processed on its devices, and we act as the School's **data processor** (or agent). We act as a data user solely in respect of teacher/administrator account credentials and cloud service operational metadata.
 
 ## 3. Key concepts and roles
 
@@ -67,27 +67,27 @@ Where the Service is deployed by a School, the School determines the purposes fo
 
 | Role | Who | Relationship to personal data |
 |---|---|---|
-| Data user (students' data) | The School | Determines the purposes and manner of collecting and using student data through the Service within the classroom. |
+| Data user (students' data) | The School | Controls the hardware assets, the network environment, and the purposes for collecting and using student data through the Service. |
 | Data processor | The Developer (InHand) | Processes student data strictly on the School's instructions through software logic; acts as data user solely for cloud service maintenance and administrator identity records. |
 | Data subjects | Students, teachers, administrators | The individuals to whom the data relates. |
 
 ## 4. The personal data we collect
 
-In accordance with DPP1(1), we collect only personal data that is strictly necessary for classroom management. No wallpapers, browsing history, personal files, or documents are ever uploaded to our cloud infrastructure.
+In accordance with DPP1(1), we collect only data that is strictly necessary for classroom management. No wallpapers, browsing history, personal files, or documents are ever uploaded to our cloud infrastructure.
 
-### 4.1 Data collected from the InHand Student application (student devices)
+### 4.1 Data collected from the InHand Student application (School-owned devices)
 
-The student application runs in user space under `~/Library/Application Support/InHand/` without root daemon privileges. It processes:
+The student application runs in user space under `~/Library/Application Support/InHand/` on the School's macOS asset without requiring a root daemon. It processes:
 
 | Category | Examples | Why collected / Handled |
 |---|---|---|
-| Device identifier and display name | macOS account username of the logged-in user (e.g. `alexwong`), unique device UUID | To identify the student's station in the teacher's admin panel and route commands to the correct device. |
+| Device identifier and display name | macOS account username of the assigned user (e.g. `alexwong`), unique device UUID | To identify the School device in the teacher's admin panel and route commands to the correct station. |
 | Network information | LAN IP address, port presence, socket connection state | To enable discovery of the teacher's server over the LAN and maintain communication. |
 | Screen content (only during active sharing or viewing) | Real-time screen capture transmitted point-to-point over the School's LAN | To facilitate classroom screen sharing. Transmitted directly over LAN; **never** sent to the cloud. |
 | Session metadata & command results | Whitelisted command execution outcomes (e.g. wallpaper applied), session duration | Displayed on the teacher's admin console and recorded in local audit logs. |
-| Support & diagnostic data (optional) | Crash logs, execution traces | Collected **only if voluntarily submitted** by the user or School for troubleshooting. |
+| Support & diagnostic data (optional) | Crash logs, execution traces | Collected **only if voluntarily submitted** by the School's IT staff for troubleshooting. |
 
-**Permissions on macOS:** The student application requests standard macOS **Screen Recording** permission once. This permission is strictly required to allow the teacher to view the screen during an active lesson. Students or device administrators may inspect or revoke this permission at any time via **System Settings > Privacy & Security > Screen Recording**.
+**System Permissions on School Assets:** The student application utilizes standard macOS **Screen Recording** permissions. This allows the teacher to view the screen during an active lesson. On School-managed devices, this permission is typically configured by the School's IT administrator (via Mobile Device Management / MDM profiles) or granted during initial device provisioning.
 
 ### 4.2 Data collected from the InHand Admin control panel (teachers and administrators)
 
@@ -95,8 +95,8 @@ The student application runs in user space under `~/Library/Application Support/
 |---|---|---|
 | School registration details | School name, public key, registration token reference | To register the School endpoint with the cloud discovery service. |
 | Cryptographic credentials | Encrypted teacher keypair (Ed25519 signing key, X25519 encryption key), local passphrase-protected keyring | To sign management commands and decrypt student reports. Private keys **never** leave the local device. |
-| Classroom device history & audit logs | Connected device names, first-seen and last-seen timestamps, command records | Maintained locally on the teacher's Mac for classroom continuity, accountability, and security auditing. |
-| Network information | LAN IP address and local listening port | Published via the signed cloud discovery service so student devices on the same LAN can connect. |
+| Classroom device history & audit logs | Connected School device names, first-seen and last-seen timestamps, command records | Maintained locally on the teacher's Mac for classroom continuity, accountability, and security auditing. |
+| Network information | LAN IP address and local listening port | Published via the signed cloud discovery service so School devices on the same LAN can connect. |
 
 ### 4.3 Data collected by the cloud service
 
@@ -113,21 +113,21 @@ We do not collect sensitive personal data (such as biometric data, health inform
 
 ## 5. How personal data is collected
 
-- **Directly from you or your School:** when an administrator sets up a School registration, enters a school name, or creates administrator credentials.
-- **Automatically across the School LAN:** when the student application connects to the teacher's local admin server, transmitting display names, LAN IPs, and command statuses.
-- **Voluntarily for support:** crash logs and diagnostic traces are collected only when explicitly exported and sent to us.
+- **From the School:** when IT administrators configure School-owned devices, register the School token, or assign device naming conventions.
+- **Automatically across the School LAN:** when the student application connects to the teacher's local admin server over the campus network.
+- **Voluntarily for support:** crash logs and diagnostic traces are collected only when explicitly exported and sent to us by the School.
 
-In accordance with DPP1(2), personal data is collected by lawful and fair means, and is not excessive for classroom management.
+In accordance with DPP1(2), personal data is collected by lawful and fair means, and is not excessive for classroom management on institutional hardware.
 
 ## 6. Purposes of collection and use
 
 Personal data is collected and used strictly for purposes directly related to the Service (DPP1 and DPP3):
 
-1. **Local classroom management:** applying wallpapers, managing screen sharing, and enforcing focus modes within the School's LAN.
+1. **Local classroom management:** applying wallpapers, managing screen sharing, and enforcing focus modes across School-owned devices on the LAN.
 2. **Cryptographic discovery and connection:** allowing student devices to discover the verified teacher server via signed cloud discovery responses.
 3. **Security, authenticity and audit:** ensuring commands originate from an authorised teacher (via Ed25519 signatures) and maintaining tamper-evident local audit trails.
 4. **Verified software updates:** distributing signed update manifests checked against SHA-256 hashes.
-5. **Support and issue resolution:** diagnosing bugs using audit logs or crash reports provided to us.
+5. **Support and issue resolution:** diagnosing bugs using audit logs or crash reports provided by the School.
 6. **Legal and regulatory compliance:** complying with applicable Hong Kong laws or lawful regulatory requests.
 
 We do not use personal data for any purpose other than those stated above without prescribed consent.
@@ -136,7 +136,7 @@ We do not use personal data for any purpose other than those stated above withou
 
 ### 7.1 New purposes
 
-In accordance with DPP3, we will not use personal data for a new purpose unless we have obtained the express, voluntary, written consent ("prescribed consent") of the data subject or the deploying School (as authorised data user), or where an exemption under Part 8 of the PDPO applies.
+In accordance with DPP3, we will not use personal data for a new purpose unless we have obtained the express, voluntary, written consent ("prescribed consent") of the deploying School (as authorised data user), or where an exemption under Part 8 of the PDPO applies.
 
 ### 7.2 Direct marketing
 
@@ -148,7 +148,7 @@ We do not sell or commercialise personal data. Data is shared only under strict 
 
 ### 8.1 Strictly within the School LAN
 
-Student screen captures, applied wallpapers, and local audit logs circulate **strictly within the School's local network**. Screen sharing operates point-to-point and is never routed through our cloud servers.
+Screen streams, applied wallpapers, and local audit logs circulate **strictly within the School's local network**. Screen sharing operates point-to-point between School-owned devices and is never routed through our cloud servers.
 
 ### 8.2 Service providers (Data processors)
 
@@ -192,7 +192,7 @@ Every application update is verified before execution:
 ### 10.3 Principle of least privilege on student devices
 - The InHand Student application installs in user space (`~/Library/Application Support/InHand/`).
 - It runs with standard user privileges—it requires **no root daemon**, no system extension, and no world-writable directories.
-- System permissions (such as Screen Recording) can be inspected and revoked by the user or device administrator in macOS System Settings.
+- System permissions on School assets are managed under institutional policies established by the School's IT administration.
 
 ## 11. Retention of personal data
 
@@ -200,27 +200,26 @@ In compliance with DPP2, personal data is kept only as long as necessary:
 
 | Data | Storage Location | Retention Period |
 |---|---|---|
-| Classroom audit logs | Local Mac (Teacher / Student) | Retained until cleared by the School or upon software uninstallation. |
-| Teacher keys and keyring | Local Mac (Teacher) | Retained until deleted by the teacher or upon uninstallation. |
+| Classroom audit logs | Local School Mac (Teacher / Student) | Retained until cleared by the School IT staff or upon software uninstallation / device re-imaging. |
+| Teacher keys and keyring | Local School Mac (Teacher) | Retained until deleted by the teacher or upon uninstallation. |
 | Cloud discovery registration | Cloud infrastructure | Active only during the session/registration lifetime; automatically invalidated upon expiry or token revocation. |
 | Administrator account data | Cloud infrastructure | Retained until deleted by the School administrator. |
 | Diagnostic / Crash logs | Developer support systems | Retained for up to 90 days after issue resolution, then permanently deleted. |
 
 ## 12. Children's privacy
 
-InHand is designed for educational use, including by students under the age of 18.
-- The School, acting as the data user, is responsible for ensuring lawful grounds (including parental/guardian notification or consent where required) for deploying the software on student devices.
+InHand is deployed on School-owned devices used in educational environments:
+- The School, acting as the asset owner and data user, is responsible for establishing lawful grounds (including institutional policies and parental/guardian notification) for deploying software on School-assigned devices.
 - InHand collects no behavioral profiling data, serves no advertisements, and creates no student cloud profiles.
 - Screen sharing is strictly local, visible, and governed by classroom transparency measures.
 
 ## 13. Screen sharing, monitoring and transparency
 
-Screen viewing is designed for collaborative teaching, subject to clear safeguards:
+Screen viewing is designed for instructional supervision on School property, subject to clear safeguards:
 - **Teacher-initiated:** Viewing is initiated explicitly by the teacher selecting a specific display or window.
-- **Visible sharing state:** When screen viewing or focus mode is active, the student application indicates that screen sharing is in progress.
+- **Visible sharing state:** When screen viewing or focus mode is active, the student application indicates on-screen that screen sharing is in progress.
 - **Clean exit:** The teacher may end screen sharing or exit focus mode at any time, returning student devices to their normal operating state automatically.
 - **Strictly LAN-bound:** Screen captures travel solely across the School's LAN and are neither recorded by InHand nor streamed to the cloud.
-- **Permission control:** macOS Screen Recording permission can be reviewed or revoked in System Settings at any time.
 
 ## 14. Cookies and similar technologies
 
@@ -228,27 +227,27 @@ The cloud administration console uses strictly necessary session cookies (HttpOn
 
 ## 15. Automated decision-making and profiling
 
-The Service does not perform automated decision-making, scoring, or behavioral profiling. Commands (such as setting wallpapers or applying local focus rules) are executed directly based on explicit teacher instructions.
+The Service does not perform automated decision-making, scoring, or behavioral profiling. Commands (such as setting wallpapers or applying local focus rules) are executed directly based on explicit teacher instructions on institutional devices.
 
 ## 16. Your rights under the PDPO
 
-Under sections 18, 22, and 23 of the PDPO, you have the right to:
-- **Ascertain** whether we hold personal data relating to you;
-- **Request access** to your personal data within statutory time limits (ordinarily 40 days);
-- **Request correction** of any inaccurate personal data; and
+Under sections 18, 22, and 23 of the PDPO, data subjects have the right to:
+- **Ascertain** whether personal data is held;
+- **Request access** to personal data within statutory time limits (ordinarily 40 days);
+- **Request correction** of inaccurate personal data; and
 - **Withdraw consent** where processing relies upon consent.
 
-Because the School is the data user for student data, students and parents should direct access and correction requests to their School in the first instance. We will assist the School in fulfilling such requests. For cloud administrator records, requests may be directed to our Privacy Officer.
+Because the School is the owner of the devices and the data user under the law, students and parents should direct access and correction requests regarding school device records to the **School** in the first instance. We will support the School in fulfilling statutory requests.
 
 ## 17. Complaints to the Privacy Commissioner
 
-If you believe your personal data rights have been infringed, you may lodge a complaint with the Office of the Privacy Commissioner for Personal Data, Hong Kong:
+If you believe your personal data privacy has been infringed, you may lodge a complaint with the Office of the Privacy Commissioner for Personal Data, Hong Kong:
 
 > **Office of the Privacy Commissioner for Personal Data (PCPD)**
 > 12/F, 248 Queen's Road East, Wan Chai, Hong Kong
 > Telephone: +852 2827 2827 · Website: [www.pcpd.org.hk](https://www.pcpd.org.hk)
 
-We encourage you to contact us or your School first so we can promptly address your concerns.
+We encourage you to contact the School or our Privacy Officer first so we can promptly address your concerns.
 
 ## 18. Data breach response
 
@@ -265,11 +264,9 @@ We may update this Policy to reflect technical updates or legal changes. Updates
 
 For privacy questions, access requests, or regulatory inquiries:
 
-> **AlphaBrate Software Developer Team**
->
-> Email:
->
-> Address: Christian Alliance S. C. Chan Memorial College, 7 Yau Oi Road, Tuen Mun, New Territories, Hong Kong
+> **InHand Privacy Officer**
+> Email: privacy@inhand.example *(or developer contact email)*
+> Address: Hong Kong Special Administrative Region
 
 ---
 
