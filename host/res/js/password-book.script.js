@@ -32,10 +32,7 @@
 
 	async function load() {
 		if (!api()?.getPasswordBook) {
-			$("book-editor").value = "";
-			$("book-editor").disabled = true;
-			$("btn-save").disabled = true;
-			$("meta").textContent = "Open this page inside the InHand app (Admin → Password Book).";
+			$("meta").textContent = "Opened outside the InHand app — editing works, saving needs the app (Admin → Password Book).";
 			return;
 		}
 		const res = await api().getPasswordBook();

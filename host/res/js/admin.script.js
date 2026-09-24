@@ -197,7 +197,7 @@ async function handleActionClick(type, card) {
 	if (type === "lan-only") {
 		const turnOn = !fwState.locked;
 		const msg = turnOn
-			? "LAN-Only will cut all internet access for every student — only local network traffic stays.\n\nStudents cannot undo this. Continue?"
+			? "LAN-Only will cut all WAN internet access for every student.\n\nStudents cannot undo this. Continue?"
 			: "Restore internet access for every student?\n\nThis unlocks the firewall on every client.";
 		if (!confirm(msg)) return;
 		card.classList.remove("failed");
@@ -650,7 +650,7 @@ async function fetchStatus() {
                             <td>
                                 ${
 									isOnline
-										? `<button class="view-btn" data-action="view" data-name="${esc(device.name)}" data-sid="${esc(device.socketId)}"><i data-sf="eye"></i> View Screen</button>`
+										? `<button class="view-btn" data-action="view" data-name="${esc(device.name)}" data-sid="${esc(device.socketId)}">View Screen</button>`
 										: `<button class="btn-remove" data-action="remove" data-name="${esc(device.name)}" title="Remove History">Remove</button>`
 								}
                             </td>
@@ -874,4 +874,11 @@ function serverAddress() {
 				setTimeout(() => addr_el.classList.remove("copied"), 500);
 			});
 		});
+}
+
+// Update the copyright year dynamically
+const yearSpan = document.querySelector(".current-year");
+if (yearSpan) {
+	const currentYear = new Date().getFullYear();
+	yearSpan.textContent = currentYear;
 }

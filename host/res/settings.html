@@ -9,77 +9,7 @@
     <title>InHand Settings</title>
     <link rel="icon" type="image/png" href="/icon.png">
     <link rel="stylesheet" href="/style.css">
-    <style>
-        body { padding: 30px; }
-        .settings-wrap { max-width: 540px; margin: 0 auto; }
-        .settings-wrap > .panel { padding: 26px 28px 28px; }
-        .settings-title { display: flex; align-items: center; gap: 10px; margin: 0 0 2px; }
-        .settings-sub { color: var(--fg-2); font-size: 0.85rem; margin: 0 0 18px; }
-        .group { padding: 16px 0; border-top: 1px solid var(--hairline); }
-        .group:first-of-type { border-top: 0; padding-top: 4px; }
-        .group h2 { font-size: 0.95rem; font-weight: 600; margin: 0 0 12px; }
-        .group label { display: block; font-size: 0.8rem; color: var(--fg-2); font-weight: 500; margin: 0 0 10px; }
-        .group label input { margin-top: 4px; }
-        .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-        .key-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-        .key-row code {
-            font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.02em;
-            background: rgba(0, 0, 0, 0.05); padding: 5px 10px; border-radius: 8px;
-        }
-        .hint { font-size: 0.78rem; color: var(--fg-2); line-height: 1.55; margin: 10px 0 0; }
-        .hint .ok { color: var(--ok-fg); font-weight: 600; }
-        .btn.danger {
-            background: rgba(255, 69, 58, 0.12); color: #d70015;
-            border: 1px solid rgba(255, 69, 58, 0.35);
-        }
-        .btn.danger:hover { background: rgba(255, 69, 58, 0.2); }
-
-        /* Unlock / setup gate — same glass language as the dashboard */
-        #security-gate {
-            position: fixed; inset: 0; z-index: 1000;
-            background: rgba(245, 245, 247, 0.85);
-            -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
-            display: flex; align-items: center; justify-content: center; padding: 24px;
-        }
-        #security-gate .security-card { width: 380px; max-width: 92vw; }
-        .security-form { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
-        .security-form .btn { width: 100%; margin-top: 4px; }
-
-        /* Rotate confirmation modal (type REGENERATE) */
-        .modal-overlay {
-            position: fixed; inset: 0; z-index: 1100;
-            background: rgba(20, 20, 22, 0.4);
-            -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
-            display: flex; align-items: center; justify-content: center; padding: 24px;
-        }
-        .modal-overlay .security-card { width: 420px; max-width: 94vw; }
-        .modal-confirm-input {
-            width: 100%; margin: 12px 0 4px;
-            background: var(--input-bg); border: 1px solid rgba(0, 0, 0, 0.14);
-            color: var(--fg); border-radius: 12px; padding: 10px 13px;
-            font-size: 14px; font-family: var(--font-mono); letter-spacing: 0.08em;
-        }
-        .modal-confirm-input:focus { outline: none; border-color: rgba(0, 0, 0, 0.5); box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.08); }
-        .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
-        .modal-err { color: var(--danger); font-size: 12px; min-height: 1em; margin-top: 4px; }
-        .rotate-steps { margin: 4px 0 0; padding-left: 18px; }
-        .rotate-steps li { font-size: 0.78rem; color: var(--fg-2); line-height: 1.6; margin-bottom: 4px; }
-        .rotate-steps code { font-family: var(--font-mono); font-size: 0.72rem; background: rgba(0, 0, 0, 0.05); padding: 1px 5px; border-radius: 5px; }
-        .inline-ok { color: var(--ok-fg); font-size: 12px; font-weight: 600; }
-
-        .toast-root {
-            position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-            display: flex; flex-direction: column; align-items: center; gap: 8px;
-            z-index: 2000; pointer-events: none; max-width: min(520px, 90vw);
-        }
-        .toast {
-            background: rgba(29, 29, 31, 0.92); color: #fff; font-size: 13px; font-weight: 500;
-            padding: 10px 16px; border-radius: 12px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
-            opacity: 0; transform: translateY(8px); transition: opacity 0.2s, transform 0.2s;
-        }
-        .toast.show { opacity: 1; transform: translateY(0); }
-        .toast-error { background: rgba(160, 20, 20, 0.95); }
-    </style>
+    <link rel="stylesheet" href="/css/settings.css">
 </head>
 <body>
     <!-- Unlock / first-run gate (same glass language as the dashboard login) -->
@@ -120,7 +50,7 @@
             <div class="group">
                 <h2>Cloud &amp; School</h2>
                 <label>School name
-                    <input type="text" id="set-school" placeholder="e.g. AlphaBrate International School" autocomplete="off">
+                    <input type="text" id="set-school" placeholder="e.g. Hong Kong International School" autocomplete="off">
                 </label>
                 <label>Registration token
                     <input type="text" id="set-token" placeholder="One-time token from the website" autocomplete="off">
@@ -137,7 +67,7 @@
             <div class="group">
                 <h2>Teacher Keys</h2>
                 <div class="key-row">
-                    <span style="color: var(--fg-2); font-size: 0.8rem; font-weight: 500;">Signing key fingerprint</span>
+                    <span>Signing key fingerprint</span>
                     <code id="key-fingerprint">—</code>
                     <button id="btn-copy-pub" class="btn secondary">Copy Public Key</button>
                 </div>
@@ -165,26 +95,26 @@
                 <!-- Step 1: confirm (type REGENERATE) -->
                 <div id="rotate-confirm-panel">
                     <h1 class="app-mark">Regenerate Keys</h1>
-                    <p class="security-hint" style="margin-top: 10px;">
+                    <p class="security-hint">
                         This replaces this Mac's teacher keypair (signature + encryption) and
                         <strong>re-registers the new public key with the InHand cloud server</strong>
                         (if a registration token and API URL are configured).
                     </p>
-                    <p class="security-hint" style="margin-top: 8px;"><strong>What happens to students:</strong></p>
+                    <p class="security-hint"><strong>What happens to students:</strong></p>
                     <ul class="rotate-steps">
                         <li>Cloud discovery starts serving the <strong>new</strong> public key; every client
                             re-syncs it automatically on its next heartbeat (≤ 15 s) — no student action needed.</li>
                         <li>Only helpers installed before the key-fingerprint feature report no fingerprint and need
                             one manual re-key: <code>sudo inhand-fwctl setkey &lt;public-key&gt;</code></li>
                     </ul>
-                    <p class="security-hint" style="margin-top: 8px;"><strong>After rotating:</strong></p>
+                    <p class="security-hint"><strong>After rotating:</strong></p>
                     <ul class="rotate-steps">
                         <li>Nothing to do for most students — clients sync the new key automatically on their next heartbeat (≤ 15 s).</li>
                         <li>Only very old helpers (no fingerprint support) need one manual re-key:
                             <code>sudo inhand-fwctl setkey &lt;public-key&gt;</code></li>
                         <li>Resend <code>lan-only</code> to verify.</li>
                     </ul>
-                    <p class="security-hint" style="margin-top: 8px;">Type <code>REGENERATE</code> to confirm.</p>
+                    <p class="security-hint">Type <code>REGENERATE</code> to confirm.</p>
                     <input type="text" id="rotate-confirm-input" class="modal-confirm-input" placeholder="REGENERATE" autocomplete="off" spellcheck="false">
                     <div id="rotate-error" class="modal-err"></div>
                     <div class="modal-actions">
@@ -196,8 +126,8 @@
                 <!-- Step 2: done (result + next steps) -->
                 <div id="rotate-done-panel" class="hidden">
                     <h1 class="app-mark">Keys Regenerated</h1>
-                    <p class="security-hint" style="margin-top: 10px;" id="rotate-done-result"></p>
-                    <p class="security-hint" style="margin-top: 8px;"><strong>After rotating:</strong></p>
+                    <p class="security-hint" id="rotate-done-result"></p>
+                    <p class="security-hint"><strong>After rotating:</strong></p>
                     <ul class="rotate-steps">
                         <li>Nothing to do for most students — clients sync the new key automatically on their next heartbeat (≤ 15 s).</li>
                         <li>Only very old helpers (no fingerprint support) need one manual re-key:
@@ -208,7 +138,7 @@
                         <button id="btn-rotate-copy-new" class="btn secondary">Copy New Public Key</button>
                         <button id="btn-rotate-done" class="btn primary">Done</button>
                     </div>
-                    <div id="rotate-copy-feedback" class="inline-ok hidden" style="margin-top: 8px;">copied</div>
+                    <div id="rotate-copy-feedback" class="inline-ok hidden">copied</div>
                 </div>
 
             </div>
@@ -217,6 +147,6 @@
 
     <div id="toast-root" class="toast-root" aria-live="polite"></div>
 
-    <script src="/settings.script.js"></script>
+    <script src="/js/settings.script.js"></script>
 </body>
 </html>

@@ -1,0 +1,9 @@
+# security.txt
+
+Contact: mailto:moodlab@scc.edu.hk
+# Contact: mailto:inhand@scc.edu.hk
+Expires: 2027-09-17T16:00
+# Acknowledgments: https://inhand.scc.edu.hk/hall-of-fame
+# Policy: https://inhand.scc.edu.hk/security-policy
+# Hiring: https://inhand.scc.edu.hk/jobs
+Preferred-Languages: en, zh

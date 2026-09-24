@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -11,6 +12,7 @@
     <link rel="stylesheet" href="/style.css">
     <script src="/socket.io/socket.io.js"></script>
 </head>
+
 <body>
 
 
@@ -31,12 +33,15 @@
 
                 <div id="setup-form" class="security-form ai-aura hidden">
                     <h2>First-time setup</h2>
-                    <p class="security-hint">Create a password. Your signing &amp; encryption keys are encrypted with it and
+                    <p class="security-hint">Create a password. Your signing &amp; encryption keys are encrypted with it
+                        and
                         stored only on this Mac.</p>
-                    <input type="password" id="setup-password" placeholder="Password (min 8 chars)" autocomplete="new-password">
+                    <input type="password" id="setup-password" placeholder="Password (min 8 chars)"
+                        autocomplete="new-password">
                     <input type="password" id="setup-password2" placeholder="Confirm password">
                     <input type="text" id="setup-school" placeholder="School name (optional)" autocomplete="off">
-                    <input type="text" id="setup-token" placeholder="Registration token (from the website)" autocomplete="off">
+                    <input type="text" id="setup-token" placeholder="Registration token (from the website)"
+                        autocomplete="off">
                     <button id="btn-setup" class="btn primary">Create &amp; Register</button>
                     <div id="setup-error" class="security-error"></div>
                 </div>
@@ -123,12 +128,14 @@
                     </div>
                     <div class="wallpaper-guard-row">
                         <label class="wp-label" for="wp-path">Wallpaper Guard</label>
-                        <input type="text" id="wp-path" class="wp-path-input" placeholder="/System/Library/CoreServices/DefaultDesktop.heic or https://...">
+                        <input type="text" id="wp-path" class="wp-path-input"
+                            placeholder="/System/Library/CoreServices/DefaultDesktop.heic or https://...">
                         <label class="switch" title="Lock students to the wallpaper above">
                             <input type="checkbox" id="wp-guard-toggle" checked>
                             <span class="slider"></span>
                         </label>
-                        <p class="wp-hint">On = every student is locked to this wallpaper (path or URL, re-applied every few seconds). Off = students may change it.</p>
+                        <p class="wp-hint">On = every student is locked to this wallpaper (path or URL, re-applied every
+                            few seconds). Off = students may change it.</p>
                     </div>
                 </div>
             </section>
@@ -165,13 +172,14 @@
         <div class="copyright">
             <div class="links">
                 <a href="https://github.com/ChuTM/inhand/">View on GitHub</a>
-                <a href="https://ihinstall.web.app/">View Documentation</a>
+                <a href="https://inhand-server.vercel.app/docs">View Documentation</a>
             </div>
-            <p>&copy; 2026 ChuTM. All rights reserved.</p>
+            <p>&copy; <span class="current-year"></span> ChuTM. All rights reserved.</p>
         </div>
     </div>
 
-    <script src="/sf-symbols.js"></script>
-    <script src="/admin.script.js"></script>
+    <script src="/js/sf-symbols.js"></script>
+    <script src="/js/admin.script.js"></script>
 </body>
+
 </html>

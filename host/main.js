@@ -1149,6 +1149,14 @@ function showWindow() {
 			}
 		});
 		mainWindow.webContents.on("will-navigate", (event, url) => {
+			// Allow same-origin navigation (Admin → Password Book, back to Admin…)
+			// so in-app pages keep the preload bridge.
+			if (
+				url.startsWith(`http://localhost:${PORT}/`) ||
+				url.startsWith(`http://127.0.0.1:${PORT}/`)
+			) {
+				return;
+			}
 			if (url.startsWith("http:") || url.startsWith("https:")) {
 				event.preventDefault();
 				shell.openExternal(url);
