@@ -241,6 +241,20 @@ h2 {
 .cell-wide {
 	grid-column: span 2;
 }
+.cell-link {
+	display: inline-block;
+	margin-top: 14px;
+	font-size: 14px;
+	font-weight: 600;
+	color: #e43d30;
+	text-decoration: none;
+	transition: opacity 0.15s ease;
+}
+.cell-link:hover {
+	opacity: 0.7;
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
 .cell-img {
 	min-height: 220px;
 }
